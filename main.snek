@@ -4,6 +4,91 @@ import re2
 import hashlib
 
 
+def base(request, title, body):
+    return rf'''<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+    <title>{ title } | Mailpipe</title>
+  </head>
+  <body>
+<nav class="navbar navbar-expand-md navbar-light bg-light">
+    <div class="navbar-collapse collapse w-100 order-1 order-md-0 dual-collapse2">
+        <ul class="navbar-nav mr-auto">
+            <li class="nav-item active">
+                <a class="nav-link" href="/">Home</a>
+            </li>
+        </ul>
+    </div>
+    <div class="mx-auto order-0">
+        <a class="navbar-brand mx-auto" href="#">Mailpipe</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target=".dual-collapse2">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+    <div class="navbar-collapse collapse w-100 order-3 dual-collapse2">
+        <ul class="navbar-nav ml-auto">
+      { fr"""
+          <form class="form-inline" action="/_logout" method="POST">
+            <button class=" btn btn-danger" type="submit">Logout</button>
+            { csrf_input }
+          </form>
+        """ if request['user']['username'] else """
+          <li class="nav-item ">
+              <a class="nav-link" href="/_login">Log in</a>
+          </li>
+          <li class="nav-item ">
+              <a class="btn btn-primary" href="/_join">Join Functup</a>
+          </li>
+        """ }
+    </ul>
+    </div>
+</nav>
+    <div class="container">
+    { body }
+</div>
+
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+  </body>
+</html>
+    '''
+
+
+def list_addresses(data):
+    return fr'''
+    <form action="/add_email" method="POST">
+      <div class="form-group">
+    <label for="exampleInputEmail1">Add email address</label>
+    <input name="email" type="email" class="form-control" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="Enter email">
+  </div>
+   <button type="submit" class="btn btn-primary">Submit</button>
+    { csrf_input }
+    </form>
+    <h1>Email Addresses</h1>
+    <ul class="list-group"> 
+        { ''.join(rf'<li class="list-group-item">{ e["data"]["email"] }</li>' for e in data['results'] ) } 
+    </ul>'''
+
+def home(request):
+    if not request["user"]["id"]:
+        return Response(base(request=request, title='Login', body='hi there'))
+    client = APIClient()
+
+    r = client.get(f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails")
+    return Response(base(request=request, title='Login', body=list_addresses(r['json'])))
+
+
 def add_email(request):
     if not request["user"]["id"]:
         return Response(
@@ -13,7 +98,9 @@ home"""
         )
     if request["method"] == "POST":
         client = APIClient()
-        email = request["data"]["email"]
+        email = request["data"].get("email", None)
+        if not email:
+            return Response(request)
         email_account_hash = hashlib.sha1(email.encode()).hexdigest()
         owner = request["user"]["username"]
         email_path = f"v1/emails/{email_account_hash}.json"
@@ -46,19 +133,6 @@ def edit(request, path):
     return Response(data, template_name="edit.html")
 
 
-def home(request):
-    if not request["user"]["id"]:
-        return Response(
-            f"""<html>
-    <a href='/_login?next=/'> Log in</a>
-home"""
-        )
-    client = APIClient()
-
-    email_account_hash = hashlib.new("sha1").hexdigest()
-    r = client.get(f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails")
-    return Response(r, template_name="index.html")
-
 
 def messages(request, email):
     if not request["user"]["id"]:
@@ -75,7 +149,7 @@ def messages(request, email):
     return Response(r, template_name="emails.html")
 
 
-urls = [(r"/$", home), (r"/add$", add_email), (r"/e/(?P<email>[^/]+)$", messages), (r"/edit/(?P<path>.+)$", edit)]
+urls = [(r"/$", home), (r"/add_email$", add_email), (r"/e/(?P<email>[^/]+)$", messages), (r"/edit/(?P<path>.+)$", edit)]
 
 
 def handle(request):
