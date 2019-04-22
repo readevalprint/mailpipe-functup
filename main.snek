@@ -1,0 +1,116 @@
+from functup import print, Response, FileResponse, get_channel, APIClient
+import json
+import re2
+import hashlib
+
+
+def add_email(request):
+    if not request["user"]["id"]:
+        return Response(
+            f"""<html>
+    <a href='/_login?next=/'> Log in</a>
+home"""
+        )
+    if request["method"] == "POST":
+        client = APIClient()
+        email = request["data"]["email"]
+        email_account_hash = hashlib.sha1(email.encode()).hexdigest()
+        owner = request["user"]["username"]
+        email_path = f"v1/emails/{email_account_hash}.json"
+        new_data_resp = client.post("/_data.json", {"path": email_path, "data": {"email": email, "owner": owner}})
+        if new_data_resp["status_code"] == 201:
+            new_account_resp = client.post("/_emails.json", {"address": email})
+            if new_account_resp["status_code"] == 201:
+                return Response(status=302, headers={"location": "/"})
+        return Response(
+            f"""<html>
+        {email_path}
+         {new_data_resp['status_code']}: {new_data_resp['json']}<br>
+         {new_account_resp['status_code']}: {new_account_resp['json']}<br>
+         """
+        )
+
+
+def edit(request, path):
+    if not request["user"]["username"] in ["tim-admin", "tim"]:
+        return Response("Not authorized")
+    preview_url = request["query_params"].get("preview", path)
+    if request["method"] == "POST":
+        new_data = request["data"].get("data")
+        new_data_resp = APIClient().put("/_data/" + path, {"path": path, "data": new_data})
+        if new_data_resp["status_code"] == 200:
+            return Response(headers={"location": f"{ request['path'] }?preview={preview_url or '/'}"}, status=302)
+        return Response(new_data_resp, content_type="application/json")
+    files = APIClient().get("/_data?path__startswith=" + path)
+    data = {"path": path, "preview_url": preview_url, "files": files["json"]}
+    return Response(data, template_name="edit.html")
+
+
+def home(request):
+    if not request["user"]["id"]:
+        return Response(
+            f"""<html>
+    <a href='/_login?next=/'> Log in</a>
+home"""
+        )
+    client = APIClient()
+
+    email_account_hash = hashlib.new("sha1").hexdigest()
+    r = client.get(f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails")
+    return Response(r, template_name="index.html")
+
+
+def messages(request, email):
+    if not request["user"]["id"]:
+        return Response(
+            f"""<html>
+    <a href='/_login?next=/'> Log in required</a>"""
+        )
+    client = APIClient()
+
+    owner = request["user"]["username"]
+    r = client.get(f"/_data?data__owner={owner}&data__email={email}")
+    if r["status_code"] == 200:
+        r = client.get(f"/_emails/{email}/msg")
+    return Response(r, template_name="emails.html")
+
+
+urls = [(r"/$", home), (r"/add$", add_email), (r"/e/(?P<email>[^/]+)$", messages), (r"/edit/(?P<path>.+)$", edit)]
+
+
+def handle(request):
+    for path_re, view in urls:
+        m = re2.match(path_re, request["path"])
+        if m:
+            return view(request, **m.groupdict())
+    return Response("not found", status=404)
+
+
+get = handle
+post = handle
+
+
+def http_error(data):
+    return Response(json.dumps({"an error": data}), content_type="application/json")
+
+
+def template_error(exception):
+    return json.dumps({"exception_data": exception})
+
+
+def test_home():
+    resp = handle({"path": "/", "user": {"username": "", "id": None}})
+    resp = handle({"path": "/", "user": {"username": "bob2", "id": 2}})
+
+
+def test_emails():
+    resp = handle({"path": "/e/foo@example.com"})
+
+
+def test_404():
+    resp = handle({"path": "/non-existant"})
+
+
+def test_http_error():
+    resp = http_error({"some": "data"})
+
