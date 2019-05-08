@@ -1,8 +1,16 @@
-from functup import print, Response, FileResponse, get_channel, APIClient
+from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
+import arrow
 import json
+from decimal import Decimal
+
 import re2
 import hashlib
+from io import BytesIO
+
+client = APIClient()
+
+RATE = {"sats_per_address": 1000, "sats_per_byte": 1, "sats_per_message": 100}
 
 
 def base(request, title, body):
@@ -37,15 +45,12 @@ def base(request, title, body):
         <ul class="navbar-nav ml-auto">
       { fr"""
           <form class="form-inline" action="/_logout" method="POST">
-            <button class=" btn btn-danger" type="submit">Logout</button>
+            <button class=" btn " type="submit">Logout { request['user']['username']}</button>
             { csrf_input }
           </form>
         """ if request['user']['username'] else """
           <li class="nav-item ">
               <a class="nav-link" href="/_login">Log in</a>
-          </li>
-          <li class="nav-item ">
-              <a class="btn btn-primary" href="/_join">Join Functup</a>
           </li>
         """ }
     </ul>
@@ -61,7 +66,6 @@ def base(request, title, body):
     <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
-    { (request['user']['username']=='tim-admin' and rf"""<pre>{ json.dumps(request, indent=2) } </pre>""") or " " }
   </body>
 </html>
     '''
@@ -95,18 +99,14 @@ def add_address_form(request, errors):
 
 
 def get_email_details(email_address):
-    client = APIClient()
-    r = client.get(f"/_emails/{email_address}")
+    r = client.get(f"/_emails/{email_address}/")
     return r["json"]
 
 
-def render_address(data):
-    d = data["data"]
-    details = get_email_details(d["email"])
-    url = f'/{ d["email"] }'
+def render_address(d):
+    url = f'/{ d["address"] }'
     return fr"""
-
-    <tr><td>{ d['email'] }</td> <td>emails: { details["message_count"] }</td><td>{ int(details["messege_length_sum"] / 1000) } Kb</td><td><a href="{ url }">details</a></td></tr>
+    <tr><td>{ d['address'] }</td> <td>emails: { d.get("message_count", 'no count') }</td><td>{ int(d.get("messege_length_sum", -1) / 1000) } Kb</td><td><a href="{ url }">details</a></td></tr>
     """
 
 
@@ -116,6 +116,8 @@ def make_safe(data):
 
 def list_addresses(address_list):
     address_list = make_safe(address_list)
+    if not address_list:
+        return "Why not create your first email address?"
     return fr"""
     <div class="row">
         <div class="col">
@@ -126,70 +128,110 @@ def list_addresses(address_list):
     </div>
     """
 
+
 def delete_email(email):
-    client = APIClient()
-    r1 = None
     r2 = None
-    r1 = client.delete("/_data?data__email=" + email)
-    if r1["status_code"] == 204:
-        r2 = client.delete(f"/_emails/{ email }")
-        if r2["status_code"] == 204:
-            return None
+    r2 = client.delete(f"/_emails/{ email }/")
+    if r2["status_code"] == 204:
+        return None
     return {"error": [email, r1, r2]}
 
+
 def delete_message(email, message_id):
-    client = APIClient()
     r2 = None
-    r2 = client.delete(f"/_emails/{ email }/msg/{ message_id }")
+    r2 = client.delete(f"/_emails/{ email }/msg/{ message_id }/")
     if r2["status_code"] == 204:
         return None
     return {"error": [email, r2]}
 
 
 def add_email(request):
-    client = APIClient()
-    email = request["data"].get("email")
+    email = request["data"].get("email").strip()
     email_account_hash = hashlib.sha1(email.encode()).hexdigest()
-    owner = request["user"]["username"]
+    user_id = request["user"]["id"]
     email_path = f"v1/emails/{email_account_hash}"
-    r = client.post("/_emails.json", {"address": email})
+    r = client.post("/_emails/", {"address": email, "user_id": user_id})
     if r["status_code"] == 201:
-        r = client.post(
-            "/_data.json",
-            {"path": email_path, "data": {"email": email, "owner": owner}},
-        )
-        if r["status_code"] == 201:
-            return None
+        return None
     return r["json"]
 
 
+def get_or_create_account(user_id):
+    results = client.get(f"/_accounts/?user_id={user_id}")["json"]["results"]
+    if not results:
+        return client.post(
+            f"/_accounts/", {"user_id": user_id, "name": f"account for {user_id}"}
+        )["json"]
+    return results
+
+
+def account_info(accounts, current_usage):
+    present = arrow.utcnow()
+    BTC = Decimal(10**8)
+    return (
+        "".join(
+            rf"""
+    <div class="row">
+        <div class="col">
+        Current balance: { account['simple_balance'].get('BTC') } BTC </br>
+        Account ID: { account['uuid']}  <br>
+        </div>
+    </div>
+    """
+            for account in accounts
+        )
+        + rf"""
+   Addresses: { current_usage['num_addresses'] } @ { current_usage['sats_per_address'] / BTC } BTC/day <br>
+   Messages: { current_usage['message_count'] } @ { current_usage['sats_per_message'] / BTC } BTC/day<br>
+   Data usage: { int(current_usage['messege_length_sum'] / 1000) }KB @ { current_usage['sats_per_byte'] } sat/byte <br>
+   Next billing cycle: { current_usage['next_billing_cycle'].humanize(present, only_distance=True) } <br>
+   Estimated billing amount: { current_usage['sats_total'] / BTC  } BTC <br>
+
+   """
+    )
+
+
 def home(request):
-    if not request["user"]["id"]:
+    user_id = request["user"]["id"]
+    if not user_id:
         return Response(
             base(
                 request=request,
-                title="Login",
-                body="hi there stranger, why don't you log in?",
+                title="Welcome",
+                body="<h2>Hi there stranger</h2> why don't you log in?",
             )
         )
 
+    # should only be one but you never know
+    accounts = []
+    accounts = get_or_create_account(request["user"]["id"])
     error = {}
     if request["method"] == "POST":
         error = add_email(request)
         if not error:
             return Response(status=302, headers={"location": "/"})
 
-    client = APIClient()
-    r = client.get(
-        f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails"
-    )
-    address_list = r["json"]["results"]
+    next_page = f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails&page_size=10000"
+    # next_page = False
+    while next_page:
+        old_data_resp = client.get(next_page)
+        old_address_list = old_data_resp["json"]["results"]
+        for oa in old_address_list:
+            r = client.patch(f"/_emails/{oa['data']['email']}/", {"user_id": user_id})
+            client.delete(oa["url"])
+        next_page = old_data_resp["json"]["next"]
 
+    emails = user_emails(user_id)
+    current_usage = get_current_usage(emails)
     return Response(
         base(
             request=request,
             title="Emails",
-            body=add_address_form(request, error) + list_addresses(address_list),
+            body=(
+                account_info(accounts, current_usage)
+                + add_address_form(request, error)
+                + list_addresses(emails)
+            ),
         )
     )
 
@@ -204,42 +246,21 @@ def delete(request, email):
             )
         )
 
-    client = APIClient()
     if request["method"] == "POST":
         if not error:
             return Response(status=302, headers={"location": "/"})
-
-
-def edit(request, path):
-    if not request["user"]["username"] in ["tim-admin", "tim"]:
-        return Response("Not authorized")
-    preview_url = request["query_params"].get("preview", path)
-    if request["method"] == "POST":
-        new_data = request["data"].get("data")
-        new_data_resp = APIClient().put(
-            "/_data/" + path, {"path": path, "data": new_data}
-        )
-        if new_data_resp["status_code"] == 200:
-            return Response(
-                headers={
-                    "location": f"{ request['path'] }?preview={preview_url or '/'}"
-                },
-                status=302,
-            )
-        return Response(new_data_resp, content_type="application/json")
-    files = APIClient().get("/_data?path__startswith=" + path)
-    data = {"path": path, "preview_url": preview_url, "files": files["json"]}
-    return Response(data, template_name="edit.html")
+        return Response(error, status=400)
 
 
 def email_detail(email_data):
+    if "address" not in email_data:
+        return """<div class="alert alert-danger" role="alert"> No messages </div>"""
     return rf"""
     <div class="row">
         <div class="col">
             <h2>{ email_data['address'] }</h2>
             <form action="" method="POST">
-                <input type="submit" name="delete" value="delete" >
-                <input type="hidden" name="email" value="{ email_data['address'] }" >
+                <input type="submit" name="delete" value="delete { email_data["address"] }" class="btn btn-outline-danger ">
                 { csrf_input }
             </form>
         </div>
@@ -250,15 +271,20 @@ def render_message(e):
     return fr"""
     <div class="card">
   <div class="card-body">
+  <p class="card-text">
   From: { e['frm'] }<br>
   To: { e['to'] }<br>
+  Subject: { e['subject'] }<br>
     Attachments:</br>
-  { ''.join(rf'<a href="#" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
-      <a href="{e['id']}/" class="btn btn-primary">Read Full</a>
-            <form action="/{ e['account'] }/{ e['id'] }/" method="POST">
-                <input type="submit" name="delete" value="delete" >
-                { csrf_input }
-            </form>
+  { ''.join(rf'<a href="/{ e["account"] }/{ e["id"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
+<br>
+  Text:</br>
+    <p class="card-text">{ e['text'] }</p>
+  </p>
+    <form action="/{ e['account'] }/{ e['id'] }/" method="POST"  class="form-inline">
+        <input type="submit" name="delete" value="delete" class="btn btn-outline-danger btn-sm">
+        { csrf_input }
+    </form>
   </div>
 </div>
     """
@@ -270,18 +296,19 @@ def render_full_message(e):
   <div class="card-body">
   From: { e['frm'] }<br>
   To: { e['to'] }<br>
+  To: { e['subject'] }<br>
   Text:</br>
     <p class="card-text">{ e['text'] }</p>
-  Html:</br>
-    <p class="card-text">{ e['html'] }</p>
     Attachments:</br>
-  { ''.join(rf'<a href="#" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
+  { ''.join(rf'<a href="/{ e["account"] }/{ e["id"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
   </div>
 </div>
     """
 
 
 def message_list(messages):
+    if "results" not in messages:
+        return """<div class="alert alert-danger" role="alert"> No messages </div>"""
     messages = make_safe(messages)
     return fr"""
     <div class="row">
@@ -292,21 +319,46 @@ def message_list(messages):
     """
 
 
-def message(request, email, message_id):
-    client = APIClient()
-    if not request["user"]["id"]:
+def attachment(request, email, message_id, attachment_index, filename):
+    user_id = request["user"]["id"]
+    if not user_id:
         return Response(
             f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
         )
 
-    owner = request["user"]["username"]
-    data = owns_email(owner, email)
+    data = owns_email(user_id, email)
     if not data:
         return Response(
             base(request=request, title="Not found", body=f"<h1>Not Found</h1>"),
             status=404,
         )
-    email = data["email"]
+    message = client.get(f"/_emails/{email}/msg/{message_id}")["json"]
+    attachment = message["attachments"][int(attachment_index)]
+    return FileResponse(
+        BytesIO(
+            client.get(
+                f"/_emails/{email}/msg/{message_id}/attachments/{attachment_index}/{attachment['filename']}",
+                format=None,
+            )["content"]
+        ),
+        as_attachment=False,
+        filename=attachment["filename"],
+    )
+
+
+def message(request, email, message_id):
+    if not request["user"]["id"]:
+        return Response(
+            f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
+        )
+
+    user_id = request["user"]["id"]
+    data = owns_email(user_id, email)
+    if not data:
+        return Response(
+            base(request=request, title="Not found", body=f"<h1>Not Found</h1>"),
+            status=404,
+        )
     message = client.get(f"/_emails/{email}/msg/{message_id}")["json"]
     if request["method"] == "POST" and "delete" in request["data"]:
         error = delete_message(email, message_id)
@@ -314,31 +366,28 @@ def message(request, email, message_id):
             return Response(status=302, headers={"location": fr"/{ email }/"})
         return Response(error)
 
+    return Response(
+        base(
+            request=request, title=message["subject"], body=render_full_message(message)
+        )
+    )
 
-    return Response(base(request=request, title=message["subject"], body=render_full_message(message)))
 
-
-def owns_email(owner, email):
-    client = APIClient()
-    email_resp = client.get(f"/_data?data__email={email}")
-    if (
-        email_resp["status_code"] != 200
-        or email_resp["json"]["count"] != 1
-        or email_resp["json"]['results'][0]["data"].get("owner", None) != owner
-    ):
+def owns_email(user_id, email):
+    email_resp = client.get(f"/_emails/{email}/")
+    if email_resp["status_code"] != 200 or email_resp["json"]["user_id"] != user_id:
         return False
-    return email_resp["json"]['results'][0]["data"]
+    return email_resp["json"]
 
 
 def details(request, email):
-    if not request["user"]["id"]:
+    user_id = request["user"]["id"]
+    if not user_id:
         return Response(
             f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
         )
-    owner = request["user"]["username"]
-    client = APIClient()
 
-    data = owns_email(owner, email)
+    data = owns_email(user_id, email)
     if not data:
         return Response(
             base(request=request, title="Not found", body=f"<h1>Not Found</h1>"),
@@ -346,20 +395,76 @@ def details(request, email):
         )
 
     if request["method"] == "POST" and "delete" in request["data"]:
-        error = delete_email(request["data"]["email"])
+        error = delete_email(email)
         if not error:
             return Response(status=302, headers={"location": "/"})
         return Response(error)
 
-    email = data["email"]
-    messages = client.get(f"/_emails/{email}/msg")["json"]
+    messages = client.get(f"/_emails/{email}/msg/")["json"]
     return Response(
         base(
             request=request,
             title=email,
-            body=email_detail(get_email_details(email))
-            + message_list(messages),
+            body=email_detail(get_email_details(email)) + message_list(messages),
         )
+    )
+
+
+def user_emails(user_id):
+    next_url = rf"/_emails/?user_id={user_id}&page_size=10000"
+    emails = []
+    while next_url:
+        j = client.get(next_url)["json"]
+        next_url = j["next"]
+        emails = emails + j["results"]
+    return emails
+
+
+def get_current_usage(emails):
+    num_addresses = len(emails)
+    messege_length_sum = 0
+    message_count = 0
+    for e in emails:
+        message_count = message_count + e["message_count"]
+        messege_length_sum = messege_length_sum + e["messege_length_sum"]
+
+    return {
+        "num_addresses": num_addresses,
+        "message_count": message_count,
+        "messege_length_sum": messege_length_sum,
+        "next_billing_cycle": arrow.utcnow().replace(hour=0, minute=0).shift(hours=24),
+        "sats_per_message": RATE["sats_per_message"],
+        "sats_per_address": RATE["sats_per_address"],
+        "sats_per_byte": RATE["sats_per_byte"],
+        "sats_total": (
+            Decimal(message_count * RATE["sats_per_message"])
+            + Decimal(num_addresses * RATE["sats_per_address"])
+            + (messege_length_sum * RATE["sats_per_byte"])
+        ),
+    }
+
+
+def bill_users(request):
+    if request["user"]["id"] != settings["OWNER"]["id"]:
+        return Response("no")
+
+    next_url = "/_accounts/?user_id__isnull=false&page_size=10000"
+    accounts = []
+    while next_url:
+        j = client.get(next_url)["json"]
+        next_url = j["next"]
+        accounts = accounts + j["results"]
+
+    for account in accounts:
+        emails = user_emails(account["user_id"])
+        account["usage"] = get_current_usage(emails)
+
+    def default(obj):
+        return str(obj)
+
+    return Response(
+        json.dumps({"accounts": accounts}, indent=2, default=default),
+        content_type="application/json",
     )
 
 
@@ -367,6 +472,11 @@ urls = [
     (r"/$", home),
     (r"/(?P<email>[^/]+)/$", details),
     (r"/(?P<email>[^/]+)/(?P<message_id>[0-9]+)/$", message),
+    (
+        r"/(?P<email>[^/]+)/(?P<message_id>[0-9]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        attachment,
+    ),
+    (r"/bill_users", bill_users),
 ]
 
 
@@ -376,9 +486,10 @@ def handle(request):
         if m:
             return view(request, **m.groupdict())
 
-    if request['path'].endswith('/'):
+    if request["path"].endswith("/"):
         return Response("not found", status=404)
-    return Response(status=302, headers={"location": request['path'] + "/"})
+    return Response(status=302, headers={"location": request["path"] + "/"})
+
 
 get = handle
 post = handle
