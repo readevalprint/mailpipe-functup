@@ -1,6 +1,0 @@
-{
-    "hash": "17da5fd227c6ac0f21ce19cb2862036bce11aa1818c9641e19291fd1fe6442c9",
-    "path": "edit.html",
-    "data": "def render(data):\r\n    return (rf\"\"\"<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <meta charset=\"utf-8\"/>\r\n</head>\r\n<body>\r\n{ request['user']['username'] }<br>\r\n        \r\n<h1>code</h1>\r\n<form method=\"POST\">\r\n<textarea name=\"data\" rows=\"20\" cols=\"100\">{ data['files']['results'][0]['data'] }</textarea><br>\r\n{csrf_input}\r\n<input type=\"submit\">\r\n</form>\r\n<iframe src=\"{ data['preview_url'] }\" width=\"800px\" height=\"600px\">\r\n</body>\r\n\r\n</html>\r\n\r\n\"\"\")  ",
-    "timestamp": "2019-04-18T14:57:10.755160Z"
-}

@@ -1,6 +1,0 @@
-{
-    "hash": "641547215d4ab07134d0f74f03006f3ad0646e2f53c98923b1dd85b0ba5f805e",
-    "path": "emails.html",
-    "data": "import json\r\n\r\n\r\ndef email_to_html(e):\r\n    return rf\"\"\"<li>\r\nfrom: {e['frm']}<br>\r\nto: {e['to']}<br>\r\nsubject: {e['subject']}<br>\r\n<pre>{e['text']}</pre><br>\r\nAttachments:</br>\r\n{ ''.join(\r\nf'<a href=\"{ a[\"attachment_url\"] }\">{a[\"filename\"]}</a>' \r\n    for a in e['attachments'] \r\n) or \"No attachments\"}\r\n</li>\"\"\"\r\n\r\n\r\ndef render(data):\r\n    return (rf\"\"\"\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n<title>Mailpipe</title>\r\n</head>\r\n<body>\r\n<ul>\r\n{ \"<br>\".join( email_to_html(e) for e in data['json'][\"results\"]) } <br>\r\n</ul>\r\n<pre>{ json.dumps(data, indent=2) }</pre>\r\n</body>\r\n\"\"\")  ",
-    "timestamp": "2019-04-18T15:49:24.933054Z"
-}

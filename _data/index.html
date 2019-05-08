@@ -1,5 +1,0 @@
-{
-"path": "index.html",
-    "data": "import json\r\n\r\ndef render(data):\r\n    return (rf\"\"\"\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n<title>Mailpipe</title>\r\n</head>\r\n<body>\r\n<ul>\r\n{ \r\n''.join(\r\nf'<li><a href=\"/e/{e[\"data\"][\"email\"]}\">{e[\"data\"][\"email\"]}</a></li>' for e in data['json']['results']\r\n)\r\n}\r\n</ul>\r\n<pre>{ json.dumps(data, indent=2) }</pre>\r\n</body>\r\n\"\"\")  "
-
-}
