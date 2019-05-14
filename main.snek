@@ -2,6 +2,7 @@
 
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
+from datetime import datetime
 import arrow
 import json
 from decimal import Decimal
@@ -12,7 +13,8 @@ from io import BytesIO
 
 client = APIClient()
 
-RATE = {"sats_per_address": 1000, "sats_per_byte": 1, "sats_per_message": 100}
+RATE = {"sats_per_address": 10000, "sats_per_byte": 1, "sats_per_message": 100}
+BTC = Decimal(10 ** 8)
 
 
 def base(request, title, body):
@@ -139,9 +141,9 @@ def delete_email(email):
     return {"error": [email, r1, r2]}
 
 
-def delete_message(email, message_id):
+def delete_message(email, message_uuid):
     r2 = None
-    r2 = client.delete(f"/_emails/{ email }/msg/{ message_id }/")
+    r2 = client.delete(f"/_emails/{ email }/msg/{ message_uuid }/")
     if r2["status_code"] == 204:
         return None
     return {"error": [email, r2]}
@@ -161,36 +163,136 @@ def add_email(request):
 def get_or_create_account(user_id):
     results = client.get(f"/_accounts/?user_id={user_id}")["json"]["results"]
     if not results:
-        return client.post(
+        client.post(
             f"/_accounts/", {"user_id": user_id, "name": f"account for {user_id}"}
         )["json"]
-    return results
+        results = client.get(f"/_accounts/?user_id={user_id}")["json"]["results"]
+    return results[0]
 
 
-def account_info(accounts, current_usage):
+def get_or_create_profile(user_id):
+    profile_res = client.get(f"/_data/v1/profile/{user_id}")
+    if profile_res["status_code"] == 200:
+        return profile_res["json"]
+    return client.post(
+        "/_data",
+        data={"path": f"v1/profile/{user_id}", "data": {"created": datetime.now()}},
+    )["json"]
+
+
+def account_info(request, account, current_usage, profile, errors):
     present = arrow.utcnow()
-    BTC = Decimal(10**8)
-    return (
-        "".join(
-            rf"""
+    result =  rf"""
     <div class="row">
         <div class="col">
-        Current balance: { account['simple_balance'].get('BTC') } BTC </br>
-        Account ID: { account['uuid']}  <br>
+            <p>
+                Current balance: { '%.8f' % (account['simple_balance'].get('BTC'),) } BTC </br>
+                Account ID: { account['uuid']}  <br>
+                Addresses: { current_usage['num_addresses'] } @ { '%.8f' % (current_usage['sats_per_address'] / BTC) } BTC/day <br>
+                Messages: { current_usage['message_count'] } @ { '%.8f' % (current_usage['sats_per_message'] / BTC) } BTC/day<br>
+                Data usage: { int(current_usage['messege_length_sum'] / 1000) }KB @ { current_usage['sats_per_byte']  } sat/byte <br>
+                Next billing cycle: { current_usage['next_billing_cycle'].humanize() } <br>
+                Estimated billing amount: { '%.8f' % (current_usage['sats_total'] / BTC)  } BTC <br>
+            </p>
         </div>
     </div>
     """
-            for account in accounts
-        )
-        + rf"""
-   Addresses: { current_usage['num_addresses'] } @ { current_usage['sats_per_address'] / BTC } BTC/day <br>
-   Messages: { current_usage['message_count'] } @ { current_usage['sats_per_message'] / BTC } BTC/day<br>
-   Data usage: { int(current_usage['messege_length_sum'] / 1000) }KB @ { current_usage['sats_per_byte'] } sat/byte <br>
-   Next billing cycle: { current_usage['next_billing_cycle'].humanize(present, only_distance=True) } <br>
-   Estimated billing amount: { current_usage['sats_total'] / BTC  } BTC <br>
+    last_invoice = profile['data'].get('invoice', None)
+    if last_invoice:
+        invoice = client.get(f"/_accounts/{account['uuid']}/get_invoice/?invoice_id={last_invoice['id']}")['json']
+        profile['data']['invoice'] = invoice
+        profile = client.patch(profile['url'], data={'data': profile['data']})['json']
+        last_invoice = profile['data']['invoice']
+        if last_invoice['expirationTime'] > last_invoice['currentTime']:
+            total = last_invoice['expirationTime'] - last_invoice['invoiceTime']
+            progress = last_invoice['currentTime'] - last_invoice['invoiceTime']
+            pct = (progress * 100 ) / total
+            bg = 'bg-success'
+            if pct > 85:
+                bg = 'bg-warning'
+            if pct > 90:
+                bg = 'bg-danger'
 
-   """
+            result = result + rf"""
+            <div class="row">
+                <div class="col">
+                {total}, {progress},
+                    { pct }, {bg}, {last_invoice['url']}
+                    <div class="progress">
+                      <div class="progress-bar progress-bar-striped progress-bar-animated {bg}" role="progressbar" aria-valuenow="{ pct }" aria-valuemin="0" aria-valuemax="100" style="width: {pct}%"></div>
+                    </div>
+                </div>
+            </div>
+            """
+
+        if last_invoice['expirationTime'] + (last_invoice['expirationTime'] - last_invoice['invoiceTime']) < last_invoice['currentTime']:
+            result = result + rf"""
+            <div class="row">
+                <div class="col">
+                    Expired { invoice['id'] }
+                </div>
+            </div>
+            """
+
+    if last_invoice is None or last_invoice['expirationTime'] < last_invoice['currentTime']:
+        result = result + rf"""
+        <div class="row">
+            <div class="col">
+                <form action="." method="POST" class="form-inline">
+                    <label for="amount">Amount</label>
+                    <div class="form-group  mx-sm-3 mb-1">
+                       <input name="amount"  id="amount" class="form-control { "is-invalid" if 'amount' in errors else ""  }" value="{ request['data'].get('amount', '') }">
+                    { 'amount' in errors and rf'''
+                        <div class="invalid-tooltip">
+                            { errors['amount'] }
+                        </div>
+                    ''' or " " }
+                    </div>
+                   { csrf_input }
+                    <button type="submit" class="btn btn-primary mb-2">Top up</button>
+                </form>
+            </div>
+        </div>
+        """
+    return result
+
+
+def topup(request, user_id, profile, account):
+    amount = request["data"].get("amount", None) or request["query_params"].get(
+        "amount", "0.01"
     )
+    amount = float(amount.strip())
+    if amount < 0.00001 or amount > 0.1:
+        return {"amount": "Amount must be between 0.1 and 0.00001"}
+
+    r = client.post(
+        account["create_invoice_url"],
+        data={
+            "price": amount,
+            "currency": "BTC",
+            "redirectURL": "https://mailpipe.192.168.99.101.xip.io/",
+            "notificationURL": "",
+            "orderId": "",
+            "itemDescription": "top up",
+            "itemCode": "",
+            "physical": False,
+            "buyerName": "",
+            "buyerAddress1": "",
+            "buyerAddress2": "",
+            "buyerCity": "",
+            "buyerState": "",
+            "buyerZip": "",
+            "buyerCountry": "",
+            "buyerEmail": "",
+            "buyerPhone": "",
+        },
+    )
+    if r["status_code"] == 200:
+        profile["data"]["invoice"] = r["json"]
+        r = client.patch(profile["url"], data={'data': profile["data"]})
+        if r["status_code"] == 200:
+            return None
+    return r["json"]
 
 
 def home(request):
@@ -205,13 +307,18 @@ def home(request):
         )
 
     # should only be one but you never know
-    accounts = []
-    accounts = get_or_create_account(request["user"]["id"])
-    error = {}
+    account = get_or_create_account(user_id)
+    profile = get_or_create_profile(user_id)
+    errors = {}
     if request["method"] == "POST":
-        error = add_email(request)
-        if not error:
-            return Response(status=302, headers={"location": "/"})
+        if "email" in request["data"]:
+            errors = add_email(request)
+            if not error:
+                return Response(status=302, headers={"location": "/"})
+        if "amount" in request["data"]:
+            errors = topup(request, user_id, profile, account)
+            if not errors:
+                return Response(status=302, headers={"location": "/"})
 
     next_page = f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails&page_size=10000"
     # next_page = False
@@ -230,8 +337,8 @@ def home(request):
             request=request,
             title="Emails",
             body=(
-                account_info(accounts, current_usage)
-                + add_address_form(request, error)
+                account_info(request, account, current_usage, profile, errors)
+                + add_address_form(request, errors)
                 + list_addresses(emails)
             ),
         )
@@ -278,12 +385,12 @@ def render_message(e):
   To: { e['to'] }<br>
   Subject: { e['subject'] }<br>
     Attachments:</br>
-  { ''.join(rf'<a href="/{ e["account"] }/{ e["id"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
+  { ''.join(rf'<a href="/{ e["account"] }/{ e["uuid"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
 <br>
   Text:</br>
     <p class="card-text">{ e['text'] }</p>
   </p>
-    <form action="/{ e['account'] }/{ e['id'] }/" method="POST"  class="form-inline">
+    <form action="/{ e['account'] }/{ e['uuid'] }/" method="POST"  class="form-inline">
         <input type="submit" name="delete" value="delete" class="btn btn-outline-danger btn-sm">
         { csrf_input }
     </form>
@@ -302,7 +409,7 @@ def render_full_message(e):
   Text:</br>
     <p class="card-text">{ e['text'] }</p>
     Attachments:</br>
-  { ''.join(rf'<a href="/{ e["account"] }/{ e["id"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
+  { ''.join(rf'<a href="/{ e["account"] }/{ e["uuid"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
   </div>
 </div>
     """
@@ -321,7 +428,7 @@ def message_list(messages):
     """
 
 
-def attachment(request, email, message_id, attachment_index, filename):
+def attachment(request, email, message_uuid, attachment_index, filename):
     user_id = request["user"]["id"]
     if not user_id:
         return Response(
@@ -334,21 +441,16 @@ def attachment(request, email, message_id, attachment_index, filename):
             base(request=request, title="Not found", body=f"<h1>Not Found</h1>"),
             status=404,
         )
-    message = client.get(f"/_emails/{email}/msg/{message_id}")["json"]
+    message = client.get(f"/_emails/{email}/msg/{message_uuid}/")["json"]
     attachment = message["attachments"][int(attachment_index)]
     return FileResponse(
-        BytesIO(
-            client.get(
-                f"/_emails/{email}/msg/{message_id}/attachments/{attachment_index}/{attachment['filename']}",
-                format=None,
-            )["content"]
-        ),
+        BytesIO(client.get(attachment["attachment_url"], format=None)["content"]),
         as_attachment=False,
         filename=attachment["filename"],
     )
 
 
-def message(request, email, message_id):
+def message(request, email, message_uuid):
     if not request["user"]["id"]:
         return Response(
             f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
@@ -361,9 +463,9 @@ def message(request, email, message_id):
             base(request=request, title="Not found", body=f"<h1>Not Found</h1>"),
             status=404,
         )
-    message = client.get(f"/_emails/{email}/msg/{message_id}")["json"]
+    message = client.get(f"/_emails/{email}/msg/{message_uuid}/")["json"]
     if request["method"] == "POST" and "delete" in request["data"]:
-        error = delete_message(email, message_id)
+        error = delete_message(email, message_uuid)
         if not error:
             return Response(status=302, headers={"location": fr"/{ email }/"})
         return Response(error)
@@ -430,18 +532,21 @@ def get_current_usage(emails):
         message_count = message_count + e["message_count"]
         messege_length_sum = messege_length_sum + e["messege_length_sum"]
 
+    present = arrow.utcnow()
     return {
         "num_addresses": num_addresses,
         "message_count": message_count,
         "messege_length_sum": messege_length_sum,
-        "next_billing_cycle": arrow.utcnow().replace(hour=0, minute=0).shift(hours=24),
+        "next_billing_cycle": present.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).shift(hours=24),
         "sats_per_message": RATE["sats_per_message"],
         "sats_per_address": RATE["sats_per_address"],
         "sats_per_byte": RATE["sats_per_byte"],
         "sats_total": (
             Decimal(message_count * RATE["sats_per_message"])
             + Decimal(num_addresses * RATE["sats_per_address"])
-            + (messege_length_sum * RATE["sats_per_byte"])
+            + Decimal(messege_length_sum * RATE["sats_per_byte"])
         ),
     }
 
@@ -460,6 +565,16 @@ def bill_users(request):
     for account in accounts:
         emails = user_emails(account["user_id"])
         account["usage"] = get_current_usage(emails)
+        r = client.post(
+            account["transfer_url"],
+            {
+                "amount": Decimal(account["usage"]["sats_total"]) / BTC,
+                "currency": "BTC",
+                "destination": settings["ACCOUNT"]["uuid"],
+                "description": "billed for emails",
+            },
+        )
+        account["r"] = r["json"]
 
     def default(obj):
         return str(obj)
@@ -473,9 +588,9 @@ def bill_users(request):
 urls = [
     (r"/$", home),
     (r"/(?P<email>[^/]+)/$", details),
-    (r"/(?P<email>[^/]+)/(?P<message_id>[0-9]+)/$", message),
+    (r"/(?P<email>[^/]+)/(?P<message_uuid>[^/]+)/$", message),
     (
-        r"/(?P<email>[^/]+)/(?P<message_id>[0-9]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        r"/(?P<email>[^/]+)/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
         attachment,
     ),
     (r"/bill_users", bill_users),
