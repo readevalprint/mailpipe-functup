@@ -1,5 +1,7 @@
 # vim: syntax=python
 
+
+import base64
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
 from datetime import datetime
@@ -18,51 +20,54 @@ BTC = Decimal(10 ** 8)
 
 
 def base(request, title, body):
-    return rf'''<!doctype html>
+    return f'''<!doctype html>
 <html lang="en">
   <head>
     <!-- Required meta tags -->
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-    <!-- Bootstrap CSS -->
+    <script src="https://payme.functup.com/modal/btcpay.js"></script>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
     <title>{ title } | Mailpipe</title>
   </head>
-  <body>
-<nav class="navbar navbar-expand-md navbar-light bg-light">
-    <div class="navbar-collapse collapse w-100 order-1 order-md-0 dual-collapse2">
-        <ul class="navbar-nav mr-auto">
-            <li class="nav-item active">
-                <a class="nav-link" href="/">Home</a>
-            </li>
-        </ul>
-    </div>
-    <div class="mx-auto order-0">
-        <a class="navbar-brand mx-auto" href="#">Mailpipe</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target=".dual-collapse2">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-    </div>
-    <div class="navbar-collapse collapse w-100 order-3 dual-collapse2">
-        <ul class="navbar-nav ml-auto">
+  <body class="">
+    <div class="cover-container d-flex w-100 p-3 mx-auto flex-column flex-shrink-0">
+  <header class="masthead mb-auto">
+    <div class="inner">
+      <h3 class="masthead-brand text-center">Mailpipe</h3>
+      <nav class="nav nav-masthead justify-content-center">
+        <a class="nav-link active" href="#">Home</a>
+        <a class="nav-link" href="/fe">Features</a>
+
       { fr"""
           <form class="form-inline" action="/_logout" method="POST">
-            <button class=" btn " type="submit">Logout { request['user']['username']}</button>
+            <button class=" btn nav-link " type="submit">Logout { request['user']['username']}</button>
             { csrf_input }
           </form>
         """ if request['user']['username'] else """
-          <li class="nav-item ">
               <a class="nav-link" href="/_login">Log in</a>
-          </li>
         """ }
-    </ul>
+    
+      </nav>
     </div>
-</nav>
-    <div class="container">
-        { body }
-    </div>
+  </header>
+
+    <main role="main" class="flex-shrink-0">
+        <div class="container">
+            { body }
+        </div>
+    </main>
+</div>
+
+  <footer class="footer mt-auto py-3 justify-content-center text-center">
+      <p class="text-muted">Copyright 2019 - <a href="https://github.com/readevalprint/mailpipe-functup">Open Source</a> MIT License | <a href="https://twitter.com/mailpipe">@mailpipe</a></p>
+  </footer>
+
+
 
 
     <!-- Optional JavaScript -->
@@ -182,7 +187,46 @@ def get_or_create_profile(user_id):
 
 def account_info(request, account, current_usage, profile, errors):
     present = arrow.utcnow()
-    result =  rf"""
+    last_invoice = profile["data"].get("invoice", None)
+    invoice_link = ""
+    if last_invoice:
+        last_invoice = client.get(
+            f"/_accounts/{account['uuid']}/get_invoice/?invoice_id={last_invoice['id']}"
+        )["json"]
+        if last_invoice["expirationTime"] > last_invoice["currentTime"]:
+            invoice_link = f"""Please pay invoice <a href="{last_invoice['url']}">{last_invoice['url']}</a>"""
+        else:
+            last_invoice = None
+        profile["data"]["invoice"] = last_invoice
+        profile = client.patch(profile["url"], data={"data": profile["data"]})["json"]
+    result = ""
+    result = (
+        result
+        + rf"""
+    <div class="row">
+        <div class="col">
+            <form action="." method="POST" class="form-inline">
+                <label for="amount">Amount</label>
+                <div class="form-group  mx-sm-3 mb-1">
+                   <input name="amount"  id="amount" class="form-control { "is-invalid" if 'amount' in errors else ""  }" value="{ request['data'].get('amount', '') }">
+                { 'amount' in errors and rf'''
+                    <div class="invalid-tooltip">
+                        { errors['amount'] }
+                    </div>
+                ''' or " " }
+                </div>
+               { csrf_input }
+                <button type="submit" class="btn btn-primary mb-2"  {'disabled' if invoice_link else ''}>Top up</button>
+            </form>
+        { invoice_link }
+        </div>
+    </div>
+    """
+    )
+
+    result = (
+        result
+        + rf"""
     <div class="row">
         <div class="col">
             <p>
@@ -197,63 +241,8 @@ def account_info(request, account, current_usage, profile, errors):
         </div>
     </div>
     """
-    last_invoice = profile['data'].get('invoice', None)
-    if last_invoice:
-        invoice = client.get(f"/_accounts/{account['uuid']}/get_invoice/?invoice_id={last_invoice['id']}")['json']
-        profile['data']['invoice'] = invoice
-        profile = client.patch(profile['url'], data={'data': profile['data']})['json']
-        last_invoice = profile['data']['invoice']
-        if last_invoice['expirationTime'] > last_invoice['currentTime']:
-            total = last_invoice['expirationTime'] - last_invoice['invoiceTime']
-            progress = last_invoice['currentTime'] - last_invoice['invoiceTime']
-            pct = (progress * 100 ) / total
-            bg = 'bg-success'
-            if pct > 85:
-                bg = 'bg-warning'
-            if pct > 90:
-                bg = 'bg-danger'
+    )
 
-            result = result + rf"""
-            <div class="row">
-                <div class="col">
-                {total}, {progress},
-                    { pct }, {bg}, {last_invoice['url']}
-                    <div class="progress">
-                      <div class="progress-bar progress-bar-striped progress-bar-animated {bg}" role="progressbar" aria-valuenow="{ pct }" aria-valuemin="0" aria-valuemax="100" style="width: {pct}%"></div>
-                    </div>
-                </div>
-            </div>
-            """
-
-        if last_invoice['expirationTime'] + (last_invoice['expirationTime'] - last_invoice['invoiceTime']) < last_invoice['currentTime']:
-            result = result + rf"""
-            <div class="row">
-                <div class="col">
-                    Expired { invoice['id'] }
-                </div>
-            </div>
-            """
-
-    if last_invoice is None or last_invoice['expirationTime'] < last_invoice['currentTime']:
-        result = result + rf"""
-        <div class="row">
-            <div class="col">
-                <form action="." method="POST" class="form-inline">
-                    <label for="amount">Amount</label>
-                    <div class="form-group  mx-sm-3 mb-1">
-                       <input name="amount"  id="amount" class="form-control { "is-invalid" if 'amount' in errors else ""  }" value="{ request['data'].get('amount', '') }">
-                    { 'amount' in errors and rf'''
-                        <div class="invalid-tooltip">
-                            { errors['amount'] }
-                        </div>
-                    ''' or " " }
-                    </div>
-                   { csrf_input }
-                    <button type="submit" class="btn btn-primary mb-2">Top up</button>
-                </form>
-            </div>
-        </div>
-        """
     return result
 
 
@@ -289,22 +278,28 @@ def topup(request, user_id, profile, account):
     )
     if r["status_code"] == 200:
         profile["data"]["invoice"] = r["json"]
-        r = client.patch(profile["url"], data={'data': profile["data"]})
+        r = client.patch(profile["url"], data={"data": profile["data"]})
         if r["status_code"] == 200:
             return None
     return r["json"]
 
 
+def demo_data():
+    return rf"""
+  <main role="main" class="inner cover text-center">
+    <h1 class="cover-heading">Disposiable Email addresses.</h1>
+    <p class="lead">Instantly buy custom email addresses with bitcoin</p>
+    <p class="lead">
+      <a href="#" class="btn btn-lg btn-secondary">Learn more</a>
+    </p>
+  </main>
+    """
+
+
 def home(request):
     user_id = request["user"]["id"]
     if not user_id:
-        return Response(
-            base(
-                request=request,
-                title="Welcome",
-                body="<h2>Hi there stranger</h2> why don't you log in?",
-            )
-        )
+        return Response(base(request=request, title="Welcome", body=demo_data()))
 
     # should only be one but you never know
     account = get_or_create_account(user_id)
@@ -313,7 +308,7 @@ def home(request):
     if request["method"] == "POST":
         if "email" in request["data"]:
             errors = add_email(request)
-            if not error:
+            if not errors:
                 return Response(status=302, headers={"location": "/"})
         if "amount" in request["data"]:
             errors = topup(request, user_id, profile, account)
@@ -585,15 +580,49 @@ def bill_users(request):
     )
 
 
+def favicon(requests):
+    return FileResponse(
+        BytesIO(
+            base64.decodebytes(
+                b"""AAABAAEAEBAAAAAAAABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQ
+UFAAUFBQAFBQUABQUFAAUFBQAAAAAAAAAAAAAAAAAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQ
+UABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUAAAAAAAUFBQglBQUP9QUFAAUFBQAFBQUABQUFAAUFBQ
+AFBQUABQUFAAUFBQAFBQUABQUFAAUFBQ/1BQUIJQUFAAAAAAAFBQUP8AAAAAUFBQAFBQUABQUFAA
+UFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFD/UFBQAAAAAABQUFD/AAAAAFBQUIJQ
+UFD/UFBQ/1BQUP9QUFD/UFBQ/1BQUP9QUFD/UFBQ/1BQUIJQUFAAUFBQ/1BQUAAAAAAAUFBQ/wAA
+AABQUFD/UFBQ/////////////////////////////////1BQUP9QUFD/UFBQAFBQUP9QUFAAAAAA
+AFBQUP8AAAAAUFBQ//////9VVVX//////1hYWP9aWlr//////1paWv//////UFBQ/1BQUABQUFD/
+UFBQAFBQUP9QUFD/AAAAAFBQUP///////////1hYWP///////////1tbW////////////1BQUP9Q
+UFAAUFBQ/1BQUP8AAAAAUFBQ/wAAAABQUFD//////1dXV///////////////////////Xl5e////
+//9QUFD/UFBQAFBQUP9QUFAAAAAAAFBQUP8AAAAAUFBQ/1BQUP//////////////////////////
+//////9QUFD/UFBQ/1BQUABQUFD/UFBQAAAAAABQUFD/AAAAAFBQUIJQUFD/UFBQ/1BQUP9QUFD/
+UFBQ/1BQUP9QUFD/UFBQ/1BQUIJQUFAAUFBQ/1BQUAAAAAAAUFBQ/wAAAABQUFAAUFBQAFBQUABQ
+UFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUP9QUFAAAAAAAFBQUIJQUFD/UFBQAFBQ
+UABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUP9QUFCCUFBQAAAAAAAAAAAAAAAA
+AFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUAAAAAAA
+AAAAAAAAAABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQ
+UFAA//8AAP//AAD//wAAn/kAAL/9AACgBQAAoAUAAKAFAAAgBAAAoAUAAKAFAACgBQAAv/0AAJ/5
+AAD//wAA//8AAA=="""
+            )
+        ),
+        content_type="image/vnd.microsoft.icon",
+        headers={'Cache-Control': 'public, max-age=31536000',
+        }
+    )
+
+
 urls = [
     (r"/$", home),
-    (r"/(?P<email>[^/]+)/$", details),
-    (r"/(?P<email>[^/]+)/(?P<message_uuid>[^/]+)/$", message),
+    (r"/(?P<email>\S+@\S+\.\S+)/$", details),
+    (r"/(?P<email>\S+@\S+\.\S+)/(?P<message_uuid>[^/]+)/$", message),
     (
-        r"/(?P<email>[^/]+)/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        r"/(?P<email>\S+@\S+\.\S+)/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
         attachment,
     ),
     (r"/bill_users", bill_users),
+    (r"/favicon.ico", favicon),
 ]
 
 
@@ -603,9 +632,14 @@ def handle(request):
         if m:
             return view(request, **m.groupdict())
 
-    if request["path"].endswith("/"):
-        return Response("not found", status=404)
-    return Response(status=302, headers={"location": request["path"] + "/"})
+    for path_re, view in urls:
+        m = re2.match(path_re, request["path"] + '/')
+        if m:
+            return Response(status=302, headers={"location": request["path"] + "/"})
+    return Response(
+        base(request=request, title="Page Not found", body=f"<h1> Page Not Found</h1>"),
+        status=404,
+    )
 
 
 get = handle
@@ -618,7 +652,7 @@ def http_error(data):
 
 
 def template_error(exception):
-    return json.dumps({"exception_data": exception})
+    return json.dumps({"template_error": exception})
 
 
 def test_home():
