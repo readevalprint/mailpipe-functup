@@ -1,0 +1,1 @@
+"msgid \"blue\"\nmsgstr \"blooo\"\n"
