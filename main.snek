@@ -2,7 +2,6 @@
 
 
 import base64
-from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
 from datetime import datetime, timedelta
 import arrow

@@ -1,0 +1,195 @@
+ 
+{% extends "base.html" %}
+{% load static %}
+
+{% block meta_title %}
+  Home - {{ block.super }}
+{% endblock %}
+
+{% block bodyclass %}home{% endblock%}
+
+{% block masthead %}
+  <div class="row-fluid ">
+    <div class="span8 offset2">
+      {{ block.super }}
+    </div>
+  </div>
+{% endblock%}
+
+{% block content %}
+
+  <div class="row pad">
+    <div class="span10 offset2">
+      <div class="row">
+        <div class="span4">
+          <img class="img-responsive" src="{% static "flow.png" %}">
+        </div>
+        <div class="span6">
+          <h1>MailPipe</h1>
+          <p class="lead">a simple API to start receiving email in your app in 5 minutes.
+          </p>
+          {% if user.is_authenticated %}
+            <a href="{% url 'demo' %}" class="btn">Walk through the demo</a>
+          {% else %}
+            <form action="{% url 'demo' %}" method=POST>
+              <button class="btn btn-large">Let me try it!</button>
+              <a href="/auth/signup/" class="btn btn-large btn-primary">Sign me up!</a>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row gray pad">
+    <div class="span10 offset2">
+      <div class="row">
+        <div class="span6">
+          <h2>Why MailPipe?</h2>
+          <p class="lead">
+          Generate email addresses for your users<br>
+          Retrieve emails on your own time<br>
+          Automatic parsing and content type for attachments<br>
+          Bring your own domain name or use ours<br>
+          Develop your app without a public webserver<br>
+          </p>
+          <h3>MailPipe has you covered.</h3>
+        </div>
+        <div class="span4">
+          <img src="{% static "filter-transparent.png" %}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row pad ">
+    <div class="span10 offset2">
+      <div class="row">
+        <div class="span10">
+          <h2>OK already, show me the code!</h2>
+          <ul class="nav nav-tabs">
+            <li class="active"><a href="#json" data-toggle="tab">JSON</a></li>
+            <li><a href="#xml" data-toggle="tab">XML</a></li>
+          </ul>
+          <div class="tab-content">
+            <div class="tab-pane active" id="json">
+              <pre> 
+              <code>
+ {
+    "url": "https://mailpipe.io/emails/1234/",
+    "id": 1234,
+    "text": "This body is *bold* and *italicized!* This is *both!*
+*
+*
+Using mailpipe will make you money and cats!
+
+[image: Inline image 1]
+[image: Inline image 2]
+",
+    "html": "<div dir="ltr">This body is <b>bold</b> and <i>italicized!</i> This is <b><i>both!</i></b><div><b><i><br></i></b></div><div>Using mailpipe will make you money and cats!</div><div><br></div><div><img src="cid:ii_13fabfc50a66b0d3" alt="Inline image 1" width="200" height="150"><br>
+
+</div><div><img src="cid:ii_13fabfd2e322fb5a" alt="Inline image 2" width="200" height="149"><br></div></div>
+",
+    "to": "tim-loves-mailpipe <tim-loves-mailpipe@mailpipe.io>",
+    "frm": "Tim Watts <tim@humans.mailpipe.com>",
+    "subject": "MailPipe is easy and fun!",
+    "date": "Fri, 5 Jul 2013 00:21:13 +0100",
+    "attachments": {
+        "ii_13fabfd2e322fb5a": {
+            "index": 2,
+            "attachment_url": "https://mailpipe.io/emails/1234/attachments/ii_13fabfd2e322fb5a/image.png",
+            "content_type": "image/png",
+            "filename": "image.png"
+        },
+        "ii_13fabfc50a66b0d3": {
+            "index": 1,
+            "attachment_url": "https://mailpipe.io/emails/1234/attachments/ii_13fabfc50a66b0d3/image.png",
+            "content_type": "image/png",
+            "filename": "image.png"
+        }
+    },
+    "account_url": "https://mailpipe.io/accounts/tim-loves-mailpipe@mailpipe.io/",
+    "account": "tim-loves-mailpipe@mailpipe.io",
+    "created_at": "2013-07-04T23:21:38.205Z"
+}
+</code> </pre>
+            </div>
+            <div class="tab-pane" id="xml">
+<pre><code>
+ <root>
+  <url>https://mailpipe.io/emails/1234/</url>
+  <id>1234</id>
+  <text>
+This body is *bold* and *italicized!* This is *both!*
+
+
+Using mailpipe will make you money and cats!
+[image: Inline image 1]
+[image: Inline image 2]
+  </text>
+  <html>
+  &lt;div dir="ltr"&gt;This body is &lt;b&gt;bold&lt;/b&gt; and &lt;i&gt;italicized!&lt;/i&gt; This is &lt;b&gt;&lt;i&gt;both!&lt;/i&gt;&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;i&gt;&lt;br&gt;&lt;/i&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;Using mailpipe will make you money and cats!&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;img src="cid:ii_13fabfc50a66b0d3" alt="Inline image 1" width="200" height="150"&gt;&lt;br&gt;
+
+&lt;/div&gt;&lt;div&gt;&lt;img src="cid:ii_13fabfd2e322fb5a" alt="Inline image 2" width="200" height="149"&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;
+  </html>
+  <to>tim-loves-mailpipe<tim-loves-mailpipe@mailpipe.io></to>
+  <frm>Tim Watts<tim@humans.mailpipe.io></frm>
+  <subject>MailPipe is easy and fun!</subject>
+  <date>Fri, 5 Jul 2013 00:21:13 +0100</date>
+  <attachments>
+    <ii_13fabfd2e322fb5a>
+      <index>2</index>
+      <attachment_url>https://mailpipe.io/emails/1234/attachments/ii_13fabfd2e322fb5a/image.png</attachment_url>
+      <content_type>image/png</content_type>
+      <filename>image.png</filename>
+    </ii_13fabfd2e322fb5a>
+    <ii_13fabfc50a66b0d3>
+      <index>1</index>
+      <attachment_url>https://mailpipe.io/emails/1234/attachments/ii_13fabfc50a66b0d3/image.png</attachment_url>
+      <content_type>image/png</content_type>
+      <filename>image.png</filename>
+    </ii_13fabfc50a66b0d3>
+  </attachments>
+  <account_url>https://mailpipe.io/accounts/tim-loves-mailpipe@mailpipe.io/</account_url>
+  <account>tim-loves-mailpipe@mailpipe.io</account>
+  <created_at>2013-07-04 23:21:38.205514+00:00</created_at>
+</root>
+</code> </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <div class="row gray pad">
+    <div class="span10 offset2">
+      <div class="row">
+        <div class="span3">
+          <h2>Developer</h2>
+          <ul>
+            <li>It's open source</li>
+          </ul>
+        </div>
+        <div class="span4">
+          <h2>Team</h2>
+          <ul>
+            <li>Use your own domain</li>
+            <li>Unlimited accounts</li>
+          </ul>
+        </div>
+        <div class="span3">
+          <h2>Enterprise</h2>
+          <ul>
+            <li>Auditing</li>
+            <li>Administration</li>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  </div>
+{% endblock %}
