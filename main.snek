@@ -1,13 +1,14 @@
-# vim): syntax=python
-
+# vim: syntax=python
 
 import base64
+from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
 from datetime import datetime, timedelta
 import arrow
 import simplejson as json
 from decimal import Decimal
 from time import monotonic
+from urllib import parse
 
 import re2
 from io import BytesIO
@@ -21,208 +22,11 @@ BTC = Decimal(10 ** 8)
 from btcpay import BTCPayClient
 import os
 
-btcpayclient = BTCPayClient(
-    host=os.environ["BTCPAYSERVER_HOST"],
-    pem=os.environ["BTCPAYSERVER_PEM"],
-    tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
-)
-
-
-def base(request, title, body):
-    return f'''<!doctype html>
-    <html lang="en">
-      <head>
-        <!-- Required meta tags -->
-        <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-        <script src="https://payme.functup.com/modal/btcpay.js"></script>
-        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
-        <style>{"""
-
-          /*
-          * Globals
-          */
-
-
-          body {
-            display: -ms-flexbox;
-            display: flex;
-            color: #222;
-          }
-
-          .cover-container {
-            max-width: 42em;
-          }
-
-
-          /*
-          * Header
-          */
-          .masthead {
-            margin-bottom: 2rem;
-          }
-
-          .masthead-brand {
-            margin-bottom: 0;
-          }
-
-          .nav-masthead .nav-link {
-            padding: .25rem 0;
-            font-weight: 700;
-            color: #222;
-            background-color: transparent;
-            border-bottom: .25rem solid transparent;
-          }
-
-
-          .nav-masthead .nav-link + .nav-link {
-            margin-left: 1rem;
-          }
-
-          .nav-masthead .active {
-            color: #222;
-            border-bottom-color: #222;
-          }
-
-          @media (min-width: 48em) {
-            .masthead-brand {
-              float: left;
-            }
-            .nav-masthead {
-              float: right;
-            }
-          }
-
-
-          /*
-          * Cover
-          */
-          .cover {
-            padding: 0 1.5rem;
-          }
-          .cover .btn-lg {
-            padding: .75rem 1.25rem;
-            font-weight: 700;
-          }
-          .nav-masthead .nav-link {
-            margin-left: 1rem;
-            border: 0px;
-          }
-
-
-
-          """} </style>
-
-        <title>{ title } | Mailpipe</title>
-      </head>
-
-      <body class="">
-        <div class="cover-container d-flex w-500 h-100 p-3 mx-auto flex-column">
-          <header class="masthead mb-auto">
-
-            <div class="inner">
-              <h3 class="masthead-brand ">Mailpipe</h3>
-              <nav class="nav nav-masthead justify-content-center">
-                <a class="nav-link " href="/">Home</a>
-
-                { fr"""
-                <form class="form-inline" action="/_logout" method="POST">
-                  <button class=" btn nav-link " type="submit">Logout { request['user']['username']}</button>
-                  { csrf_input }
-                </form>
-                """ if request['user']['username'] else """
-                <a class="nav-link" href="/_login" data-toggle="tooltip" data-placement="right" title="via Functup">Log in</a>
-                """ }
-
-              </nav>
-            </div>
-          </header>
-
-          <main role="main" class="flex-shrink-0">
-          <div class="">
-            { body }
-          </div>
-          </main>
-
-          <footer class="footer mt-auto py-3 justify-content-center ">
-            <p class="text-muted">Copyright 2019 - <a href="https://github.com/readevalprint/mailpipe-functup">Open Source</a> MIT License | <a href="https://twitter.com/mailpipe">@mailpipe</a> | Hosted on <a href="https://www.functup.com" target="blank">Functup</a></p>
-          </footer>
-
-        </div>
-
-
-
-        <!-- Optional JavaScript -->
-        <!-- jQuery first, then Popper.js, then Bootstrap JS -->
-        <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
-        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
-        <script>
-          { r"""$(function () { $('[data-toggle="tooltip"]').tooltip() })""" }
-        </script>
-      </body>
-    </html>
-    '''
-
-
-def add_address_form(request, errors):
-    return rf"""
-    <div class="row">
-        <div class="col">
-            <h1>Email Addresses</h1>
-        </div>
-    </div>
-    <div class="row">
-        <div class="col">
-            <form action="." method="POST" class="form-inline">
-                <label for="email">Email address</label>
-                <div class="form-group  mx-sm-3 mb-1">
-                    <input type="text" class="form-control  { "is-invalid" if 'address' in errors else ""  }" id="email" name="email" placeholder="email@mailpipe.io" value="{ request['data'].get('email', '') }">
-                    { 'address' in errors and rf'''
-                        <div class="invalid-tooltip">
-                            { "<br>".join(errors['address']) }
-                        </div>
-                    ''' or " " }
-                </div>
-               <button type="submit" class="btn btn-primary mb-2">Add</button>
-               { csrf_input }
-            </form>
-        </div>
-    </div>
-"""
-
-
-def get_email_details(email_address):
-    r = client.get(f"/_emails/{email_address}/")
-    return r["json"]
-
-
-def render_address(d):
-    url = f'/{ d["address"] }'
-    return fr"""
-    <tr><td>{ d['address'] }</td> <td>emails: { d.get("message_count", 'no count') }</td><td>{ int(d.get("messege_length_sum", -1) / 1000) } Kb</td><td><a href="{ url }">details</a></td></tr>
-    """
-
-
-def make_safe(data):
-    return json.loads(html.escape(json.dumps(data), quote=False))
-
-
-def list_addresses(address_list):
-    address_list = make_safe(address_list)
-    if not address_list:
-        return "Why not create your first email address?"
-    return fr"""
-    <div class="row">
-        <div class="col">
-            <table class="table table-sm">
-                { ''.join(render_address(e) for e in address_list) } 
-            </table>
-        </div>
-    </div>
-    """
+# btcpayclient = BTCPayClient(
+#    host=os.environ["BTCPAYSERVER_HOST"),
+#    pem=os.environ["BTCPAYSERVER_PEM"],
+#    tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
+# )
 
 
 def delete_email(email):
@@ -252,17 +56,13 @@ def add_email(request):
 
 def get_or_create_profile(user_id):
     profile_res = client.get(f"/_data/v2/profile/{user_id}")
-    if profile_res["status_code"] == 200:
-        return profile_res["json"]
+    if profile_res.status_code == 200:
+        return profile_res.json
     profile_res = client.get(f"/_data/v1/profile/{user_id}")
-    data = profile_res['json']['data']
-    data['user_id'] = user_id
+    data = profile_res["json"]["data"]
+    data["user_id"] = user_id
     profile = client.post(
-        "/_data",
-        data={
-            "path": f"v2/profile/{user_id}",
-            "data": data,
-        },
+        "/_data", data={"path": f"v2/profile/{user_id}", "data": data}
     )["json"]
     bill_user(profile)
     return profile
@@ -292,7 +92,7 @@ def account_info(request, current_usage, profile, errors):
     balance = Decimal("0")
     for t in transactions:
         balance = balance + Decimal(t["data"].get("amount", 0))
-        if "invoice" in t["data"] and t['data']['invoice']['status'] == 'new':
+        if "invoice" in t["data"] and t["data"]["invoice"]["status"] == "new":
             last_invoice = t["data"]["invoice"]
             t = update_invoice(profile["data"]["user_id"], last_invoice["id"])["json"]
         if last_invoice:
@@ -374,75 +174,18 @@ def topup(request, user_id, profile):
     return r["json"]
 
 
-def demo_data():
-    demo_address = "demo@" + settings["DOMAIN"]
-    r = client.get(f"/_emails/{demo_address}/msg/")
-    if r["status_code"] != 200:
-        client.post(
-            r"/_emails/", {"address": demo_address, "user_id": settings["OWNER"]["id"]}
-        )
-        messages = client.get(f"/_emails/{demo_address}/msg/")["json"]["results"]
-    else:
-        messages = r["json"]["results"]
-
-    return rf"""
-    <main role="main">
-    <div class="">
-      <div class="row">
-        <div class="col">
-          <h1 class="">Instant Inbox</h1>
-          <p class="">Instantly create a custom email addresses receive emails. Pay only for what you use. Billed daily at midnight (00:00 UTC). </p>
-          <p class="text-secondary">Pro tip: any messages or address deleted before midnight will not counted toward usage and are effectively free.</p>
-
-          <h3>Rates</h3>
-          <table class="table table-sm">
-            <tr>
-              <td>Email address</td>
-              <td>{ '%.8f' % (RATE['sats_per_address'] / BTC) } BTC/day</td>
-            </tr>
-            <tr>
-              <td>Message byte</td>
-              <td>{ '%.8f' % (RATE['sats_per_byte'] / BTC) } BTC/day</td>
-            </tr>
-          </table>
-
-          <div class="alert alert-secondary" role="alert">
-            <h3>Try it now!</h3>
-            <p>Send an email to the public demo account: 
-            </p>
-            <a class="btn btn-primary" target="blank" href="mailto:demo@{ settings['DOMAIN'] }" role="button">demo@{ settings['DOMAIN'] }</a> 
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="col">
-        <p>
-        <strong>Note:</strong> Only the subject and sender will be shown below, but real accounts will have access to all email fields including attachments
-        </p>
-      </div>
-    </div>
-    <ul class="list-group list-group-flush">
-      { ''.join(rf''' 
-      <li class="list-group-item">
-      <p class="lead">{ escape(m['subject']) }</p>
-      <p><em>-{ escape(re2.split(r'[^a-zA-Z0-9]', m['frm'])[0])  }</em></p>
-      </li>
-      ''' for m in messages) }
-    </ul>
-    </main>"""
+STATIC_URL = "/static/"
 
 
 def home(request):
-    user_id = request["user"]["id"]
+    user_id = request.user.id
     if not user_id:
-        return Response(base(request=request, title="Welcome", body=demo_data()))
-
+        return Response({}, template_name="index.html")
     # should only be one but you never know
     profile = get_or_create_profile(user_id)
     errors = {}
-    if request["method"] == "POST":
-        if "email" in request["data"]:
+    if request.method == "POST":
+        if "email" in request.data:
             errors = add_email(request)
             if not errors:
                 return Response(status=302, headers={"location": "/"})
@@ -451,29 +194,19 @@ def home(request):
             if not errors:
                 return Response(status=302, headers={"location": "/"})
 
-    next_page = f"/_data?data__owner={request['user']['username']}&path__startswith=v1/emails&page_size=10000"
+    next_page = f"/_data?data__owner={request.user.username}&path__startswith=v1/emails&page_size=10000"
     # next_page = False
     while next_page:
         old_data_resp = client.get(next_page)
-        old_address_list = old_data_resp["json"]["results"]
+        old_address_list = old_data_resp.json()["results"]
         for oa in old_address_list:
             r = client.patch(f"/_emails/{oa['data']['email']}/", {"user_id": user_id})
             client.delete(oa["url"])
-        next_page = old_data_resp["json"]["next"]
+        next_page = old_data_resp.json()["next"]
 
-    emails = user_emails(user_id)
-    current_usage = get_current_usage(emails)
-    return Response(
-        base(
-            request=request,
-            title="Emails",
-            body=(
-                account_info(request, current_usage, profile, errors)
-                + add_address_form(request, errors)
-                + list_addresses(emails)
-            ),
-        )
-    )
+    emails = user_email_list(request, user_id)
+    # current_usage = get_current_usage(emails)
+    return Response(emails, template_name="email_list.html")
 
 
 def delete(request, email):
@@ -486,84 +219,50 @@ def delete(request, email):
             )
         )
 
-    if request["method"] == "POST":
+    if request.method == "POST":
         if not error:
             return Response(status=302, headers={"location": "/"})
         return Response(error, status=400)
 
 
-def email_detail(email_data):
-    if "address" not in email_data:
-        return """<div class="alert alert-danger" role="alert"> No messages </div>"""
-    return rf"""
-    <div class="row">
-        <div class="col">
-            <h2>{ email_data['address'] }</h2>
-            <form action="" method="POST">
-                <input type="submit" name="delete" value="delete { email_data["address"] }" class="btn btn-outline-danger ">
-                { csrf_input }
-            </form>
-        </div>
-    </div> """
+def attachment_detail(request, email_address, message_uuid, attachment_index, filename):
+    if not request.user.id:
+        return Response(
+            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
+        )
+
+    user_id = request.user.id
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
+        {"address": email_address}, safe="@"
+    )
+    j = client.get(url).json()
+    if not j["count"] != "1":
+        return Response("ohno, not found", status=404)
+    message = client.get(f"/_emails/{email_address}/msg/{message_uuid}/").json()
+    attachment = message["attachments"][int(attachment_index)]
+
+    r = client.get(
+        f"/_emails/{email_address}/msg/{message_uuid}/attachments/{attachment_index}/{filename}"
+    )
+    # print(path)
+    # print(f"/_data/static/{path}?format=file")
+    if r.status_code == 200:
+        return Response(
+            r.content,
+            content_type=r["content-type"],
+            headers={
+                "Cache-Control": "public, max-age=31536001",
+                "Expires": (datetime.now() + timedelta(days=10)).strftime(
+                    "%a %d %b %Y %H:%M:%S%f GMT"
+                ),
+            },
+        )
+    return Response(r.content, status=404)
 
 
-def render_message(e):
-    return fr"""
-    <div class="card">
-  <div class="card-body">
-  <p class="card-text">
-  From: { e['frm'] }<br>
-  To: { e['to'] }<br>
-  Subject: { e['subject'] }<br>
-    Attachments:</br>
-  { ''.join(rf'<a href="/{ e["account"] }/{ e["uuid"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
-<br>
-  Text:</br>
-    <p class="card-text">{ e['text'] }</p>
-  Html:</br>
-  <code>{ e['html'] }</code>
-  </p>
-    <form action="/{ e['account'] }/{ e['uuid'] }/" method="POST"  class="form-inline">
-        <input type="submit" name="delete" value="delete" class="btn btn-outline-danger btn-sm">
-        { csrf_input }
-    </form>
-  </div>
-</div>
-    """
-
-
-def render_full_message(e):
-    return fr"""
-    <div class="card">
-  <div class="card-body">
-  From: { e['frm'] }<br>
-  To: { e['to'] }<br>
-  subject: { e['subject'] }<br>
-  Text:</br>
-    <p class="card-text">{ e['text'] }</p>
-  Html:</br>
-  <code>{ e['html'] }</code>
-    Attachments:</br>
-  { ''.join(rf'<a href="/{ e["account"] }/{ e["uuid"] }/{a["index"] }/{a["filename"]}" class="card-link">{ a["filename"] }</a>' for a in e['attachments']) }  
-  </div>
-</div>
-    """
-
-
-def message_list(messages):
-    if "results" not in messages:
-        return """<div class="alert alert-danger" role="alert"> No messages </div>"""
-    messages = make_safe(messages)
-    return fr"""
-    <div class="row">
-        <div class="col">
-                { ''.join(render_message(e) for e in messages['results']) } 
-        </div>
-    </div>
-    """
-
-
-def attachment(request, email, message_uuid, attachment_index, filename):
+def attachment_detail2(
+    request, email_address, message_uuid, attachment_index, filename
+):
     user_id = request["user"]["id"]
     if not user_id:
         return Response(
@@ -589,33 +288,56 @@ def attachment(request, email, message_uuid, attachment_index, filename):
     )
 
 
-def message(request, email, message_uuid):
-    if not request["user"]["id"]:
+def message_list_view(request, email_address):
+    if not request.user.id:
         return Response(
-            f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
+            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
+        )
+    user_id = request.user.id
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
+        {"address": email_address}, safe="@"
+    )
+    j = client.get(url).json()
+    if not j["count"] != "1":
+        return Response("uh oh, not found", status=404)
+    data = j["results"][0]
+    d = {}
+    page = request.query_params.get("page")
+    if page:
+        d["page"] = page
+    page_size = request.query_params.get("page_size", None)
+    if page_size:
+        d["page_size"] = page_size
+
+    url = data["messages"] + "?" + parse.urlencode(d)
+    j = client.get(url).json()
+    j = page_adapter(request, j, f"/{email_address}/messages/")
+    j = page_result_adapter(request, j, email_message_adapter)
+    return Response(j)
+
+
+def message_detail_view(request, email_address, message_uuid):
+    if not request.user.id:
+        return Response(
+            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
         )
 
-    user_id = request["user"]["id"]
-    data = owns_email(user_id, email)
-    if not data:
-        return Response(
-            base(
-                request=request, title="Not found", body=f"<h1>Message Not Found</h1>"
-            ),
-            status=404,
-        )
-    message = client.get(f"/_emails/{email}/msg/{message_uuid}/")["json"]
-    if request["method"] == "POST" and "delete" in request["data"]:
+    user_id = request.user.id
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
+        {"address": email_address}, safe="@"
+    )
+    j = client.get(url).json()
+    if not j["count"] != "1":
+        return Response("ohno, not found", status=404)
+    message = client.get(f"/_emails/{email_address}/msg/{message_uuid}/").json()
+    if request.method == "POST" and "delete" in request.data:
         error = delete_message(email, message_uuid)
         if not error:
-            return Response(status=302, headers={"location": fr"/{ email }/"})
+            # todo just show deleted confirmation
+            return Response(status=302, headers={"location": fr"/{ email }/messages/"})
         return Response(error)
 
-    return Response(
-        base(
-            request=request, title=message["subject"], body=render_full_message(message)
-        )
-    )
+    return Response(email_message_adapter(request, message))
 
 
 def owns_email(user_id, email):
@@ -625,48 +347,125 @@ def owns_email(user_id, email):
     return email_resp["json"]
 
 
-def details(request, email):
-    user_id = request["user"]["id"]
+def email_detail_view(request, email_address):
+    user_id = request.user.id
     if not user_id:
         return Response(
             f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
         )
 
-    data = owns_email(user_id, email)
+    data = user_email_detail(request, user_id, email_address)
     if not data:
-        return Response(
-            base(
-                request=request,
-                title="Not found",
-                body=f"<h1>Email address not Found</h1>",
-            ),
-            status=404,
-        )
+        return Response("not found", status=404)
 
-    if request["method"] == "POST" and "delete" in request["data"]:
+    if request.method == "POST" and "delete" in request["data"]:
         error = delete_email(email)
         if not error:
             return Response(status=302, headers={"location": "/"})
         return Response(error)
 
-    messages = client.get(f"/_emails/{email}/msg/")["json"]
-    return Response(
-        base(
-            request=request,
-            title=email,
-            body=email_detail(get_email_details(email)) + message_list(messages),
-        )
+    return Response(data, template_name="rest_framework_base.html")
+
+
+def email_attachment_adapter(request, e, a):
+    r = a
+    r["attachment_url"] = request.build_absolute_uri(
+        f"/{e['account']}/messages/{e['uuid']}/{a['index']}/{a['filename']}"
     )
+    return r
 
 
-def user_emails(user_id):
-    next_url = rf"/_emails/?user_id={user_id}&page_size=10000"
-    emails = []
-    while next_url:
-        j = client.get(next_url)["json"]
-        next_url = j["next"]
-        emails = emails + j["results"]
-    return emails
+def email_message_adapter(request, e):
+    print(e)
+    r = {}
+    r["url"] = request.build_absolute_uri(
+        "/" + e["account"] + f"/messages/{e['uuid']}/"
+    )
+    r["subject"] = e["subject"]
+    r["text"] = e["text"]
+    r["html"] = e["html"]
+    r["attachments"] = [
+        email_attachment_adapter(request, e, a) for a in e["attachments"]
+    ]
+    r["account"] = e["account"]
+    r["created_at"] = e["created_at"]
+
+    if "format" in request.query_params:
+        r["url"] = r["url"] + "?format=" + request.query_params["format"]
+    return r
+
+
+def email_adapter(request, e):
+    r = {}
+    r["url"] = request.build_absolute_uri("/" + e["address"] + "/")
+    r["address"] = e["address"]
+    r["messages"] = request.build_absolute_uri("/" + e["address"] + "/messages/")
+    r["message_count"] = e["message_count"]
+    r["messege_length_sum"] = e["messege_length_sum"]
+    r["callback_url"] = e["callback_url"]
+
+    if request.query_params.get("format"):
+        r["url"] = r["url"] + "?format=" + request.query_params["format"]
+        r["messages"] = r["messages"] + "?format=" + request.query_params["format"]
+    return r
+
+
+def user_email_list(request, user_id):
+    d = {}
+    page = request.query_params.get("page")
+    if page:
+        d["page"] = page
+    page_size = request.query_params.get("page_size", None)
+    if page_size:
+        d["page_size"] = page_size
+
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(d)
+    j = client.get(url).json()
+    j = page_adapter(request, j, "/")
+    j = page_result_adapter(request, j, email_adapter)
+    return j
+
+
+def user_email_detail(request, user_id, email_address):
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
+        {"address": email_address}, safe="@"
+    )
+    print(url)
+    j = client.get(url).json()
+    if j["count"] == 1:
+        return email_adapter(request, j["results"][0])
+    return None
+
+
+def page_adapter(request, j, path):
+    if j.get("next"):
+        qs = parse.urlsplit(j["next"]).query
+        qs_dict = parse.parse_qs(qs)
+        qs_dict = dict((k, qs_dict[k]) for k in ("page", "page_size") if k in qs_dict)
+        if request.query_params.get("format"):
+            qs_dict["format"] = request.query_params["format"]
+        j["next"] = (
+            request.build_absolute_uri(path)
+            + "?"
+            + parse.urlencode(qs_dict, doseq=True)
+        )
+    if j.get("previous"):
+        qs = parse.urlsplit(j["previous"]).query
+        qs_dict = parse.parse_qs(qs)
+        qs_dict = dict((k, qs_dict[k]) for k in ("page", "page_size") if k in qs_dict)
+        if "format" in request.query_params:
+            qs_dict["format"] = request.query_params["format"]
+        j["previous"] = (
+            request.build_absolute_uri(path)
+            + "?"
+            + parse.urlencode(qs_dict, doseq=True)
+        )
+    return j
+
+
+def page_result_adapter(request, j, func):
+    j["results"] = [func(request, r) for r in j.get("results", [])]
+    return j
 
 
 def get_current_usage(emails):
@@ -712,7 +511,7 @@ def bill_users(request):
 
 def bill_user(profile):
     user_id = profile["url"].split("/")[-1]
-    emails = user_emails(user_id)
+    emails = user_email_list(user_id)
     current_usage = get_current_usage(emails)
     current_usage["current_billing_cycle"] = current_usage[
         "current_billing_cycle"
@@ -735,72 +534,55 @@ def bill_user(profile):
     return r["json"]
 
 
-def favicon(request):
-    return FileResponse(
-        BytesIO(
-            base64.decodebytes(
-                b"""AAABAAEAEBAAAAAAAABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQ
-UFAAUFBQAFBQUABQUFAAUFBQAAAAAAAAAAAAAAAAAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQ
-UABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUAAAAAAAUFBQglBQUP9QUFAAUFBQAFBQUABQUFAAUFBQ
-AFBQUABQUFAAUFBQAFBQUABQUFAAUFBQ/1BQUIJQUFAAAAAAAFBQUP8AAAAAUFBQAFBQUABQUFAA
-UFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFD/UFBQAAAAAABQUFD/AAAAAFBQUIJQ
-UFD/UFBQ/1BQUP9QUFD/UFBQ/1BQUP9QUFD/UFBQ/1BQUIJQUFAAUFBQ/1BQUAAAAAAAUFBQ/wAA
-AABQUFD/UFBQ/////////////////////////////////1BQUP9QUFD/UFBQAFBQUP9QUFAAAAAA
-AFBQUP8AAAAAUFBQ//////9VVVX//////1hYWP9aWlr//////1paWv//////UFBQ/1BQUABQUFD/
-UFBQAFBQUP9QUFD/AAAAAFBQUP///////////1hYWP///////////1tbW////////////1BQUP9Q
-UFAAUFBQ/1BQUP8AAAAAUFBQ/wAAAABQUFD//////1dXV///////////////////////Xl5e////
-//9QUFD/UFBQAFBQUP9QUFAAAAAAAFBQUP8AAAAAUFBQ/1BQUP//////////////////////////
-//////9QUFD/UFBQ/1BQUABQUFD/UFBQAAAAAABQUFD/AAAAAFBQUIJQUFD/UFBQ/1BQUP9QUFD/
-UFBQ/1BQUP9QUFD/UFBQ/1BQUIJQUFAAUFBQ/1BQUAAAAAAAUFBQ/wAAAABQUFAAUFBQAFBQUABQ
-UFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUP9QUFAAAAAAAFBQUIJQUFD/UFBQAFBQ
-UABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUP9QUFCCUFBQAAAAAAAAAAAAAAAA
-AFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUAAAAAAA
-AAAAAAAAAABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQUFAAUFBQAFBQUABQ
-UFAA//8AAP//AAD//wAAn/kAAL/9AACgBQAAoAUAAKAFAAAgBAAAoAUAAKAFAACgBQAAv/0AAJ/5
-AAD//wAA//8AAA=="""
-            )
-        ),
-        content_type="image/ico",
-        headers={
-            "Cache-Control": "public, max-age=31536001",
-            "Expires": (datetime.now() + timedelta(days=10)).strftime(
-                "%a %d %b %Y %H:%M:%S%f GMT"
-            ),
-        },
-    )
+def static(request, path):
+    r = client.get(f"/_data/static/{path}?format=file")
+    # print(path)
+    # print(f"/_data/static/{path}?format=file")
+    if r.status_code == 200:
+        return Response(
+            r.content,
+            content_type=r.content_type,
+            headers={
+                "Cache-Control": "public, max-age=31536001",
+                "Expires": (datetime.now() + timedelta(days=10)).strftime(
+                    "%a %d %b %Y %H:%M:%S%f GMT"
+                ),
+            },
+        )
+    return Response(r.content, status=404)
 
 
 urls = [
     (r"/$", home),
-    (r"/(?P<email>[^/]+@[^/]+.[^/])/$", details),
-    (r"/(?P<email>[^/]+@[^/]+.[^/])/(?P<message_uuid>[^/]+)/$", message),
+    (r"/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
+    (r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
     (
-        r"/(?P<email>[^/]+@[^/]+.[^/])/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
-        attachment,
+        r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
+        message_detail_view,
     ),
-    (r"/bill_users", bill_users),
-    (r"/favicon.ico", favicon),
+    (
+        r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        attachment_detail,
+    ),
+    (r"/static/(?P<path>.*)$", static),
 ]
 
 
 def handle(request):
     for path_re, view in urls:
-        m = re2.match(path_re, request["path"])
+        m = re2.match(path_re, request.path)
         if m:
             return view(request, **m.groupdict())
 
     for path_re, view in urls:
-        m = re2.match(path_re, request["path"] + "/")
+        m = re2.match(path_re, request.path + "/")
         if m:
-            return Response(status=302, headers={"location": request["path"] + "/"})
-    return Response(
-        base(
-            request=request, title="Page Not found", body=f"<h1>:( Page Not Found</h1>"
-        ),
-        status=404,
-    )
+            location = request.path + "/"
+            if request.query_params:
+                location = location + "?" + parse.urlencode(request.query_params)
+
+            return Response(status=302, headers={"location": location})
+    return Response({"content": "not found"}, status=404, template_name="base.html")
 
 
 get = handle

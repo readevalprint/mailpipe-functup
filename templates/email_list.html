@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+  {% if detail %}
+    <div class="alert alert-info">
+      {{ detail }}
+    </div>
+  {% endif %}
+  <div class="btn-group">
+    {% if next %}
+      <a class="btn" href="{{ next }}">Next Page</a>
+    {% endif %}
+    {% if previous %}
+      <a class="btn" href="{{ previous }}">Previous Page</a>
+    {% endif %}
+  </div>
+  <table class="table table-hover">
+    <thead>
+      <tr>
+        <th>Address</th>
+        <th>Callback URL</th>
+        <th>Inbox Size</th>
+        <th>Messages</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+        <tr>
+          <td>
+            {{ r.address }} 
+          </td>
+          <td>
+            {{ r.callback_url | default:"None" }} 
+          </td>
+          <td>
+            {{ r.messege_length_sum |filesizeformat }}
+          </td>
+          <td>
+            <a href="{{ r.messages }}" >{{ r.message_count }} Message{{ r.message_count|pluralize }}</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

@@ -1,8 +1,8 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html>
-    {% load  static %}
-  {% load rest_framework  %}
 
+  {% load  static %}
+  {% load rest_framework  %}
 
   <head>
     <link rel="shortcut icon" href="/static/favicon.ico" />
@@ -49,14 +49,6 @@
   </head>
 
   <body class="{% block bodyclass %}{% endblock %} ">
-    {% if messages %}
-      {% for message in messages %}
-        <div{% if message.tags %} class="alert alert-{{ message.tags }}"{% endif %}>
-          <a class="close" data-dismiss="alert" href="#">&times;</a>
-          {{ message }}
-        </div>
-      {% endfor %}
-    {% endif %}
     <div class="container">
 
       {% block masthead %}
@@ -84,6 +76,7 @@
       {% endblock %}
 
       {% block content %}
+        {{ content }}
       {% endblock %}
     </div>
     <script src="{% static "mailpipe_io/js/bootstrap-ajax.js" %}"></script>
