@@ -3,6 +3,8 @@
 import base64
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
+from django_jsonforms.forms import JSONSchemaForm
+
 from datetime import datetime, timedelta
 import arrow
 import simplejson as json
@@ -28,6 +30,15 @@ import os
 #    tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
 # )
 
+schema_options = {
+    "required_by_default": True,
+    "theme": "bootstrap2",
+    "no_additional_properties": True,
+    "disable_collapse": True,
+    "disable_edit_json": True,
+    "disable_properties": True,
+}
+
 
 def delete_email(email):
     r2 = None
@@ -46,12 +57,12 @@ def delete_message(email, message_uuid):
 
 
 def add_email(request):
-    email = request["data"].get("email").strip()
-    user_id = request["user"]["id"]
+    email = request.data.get("email").strip()
+    user_id = request.user.id
     r = client.post("/_emails/", {"address": email, "user_id": user_id})
-    if r["status_code"] == 201:
+    if r.status_code == 201:
         return None
-    return r["json"]
+    return r.json()
 
 
 def get_or_create_profile(user_id):
@@ -189,7 +200,7 @@ def home(request):
             errors = add_email(request)
             if not errors:
                 return Response(status=302, headers={"location": "/"})
-        if "amount" in request["data"]:
+        if "amount" in request.data:
             errors = topup(request, user_id, profile)
             if not errors:
                 return Response(status=302, headers={"location": "/"})
@@ -210,7 +221,7 @@ def home(request):
 
 
 def delete(request, email):
-    if not request["user"]["id"]:
+    if not request.user.id:
         return Response(
             base(
                 request=request,
@@ -260,34 +271,6 @@ def attachment_detail(request, email_address, message_uuid, attachment_index, fi
     return Response(r.content, status=404)
 
 
-def attachment_detail2(
-    request, email_address, message_uuid, attachment_index, filename
-):
-    user_id = request["user"]["id"]
-    if not user_id:
-        return Response(
-            f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
-        )
-
-    data = owns_email(user_id, email)
-    if not data:
-        return Response(
-            base(
-                request=request,
-                title="Not found",
-                body=f"<h1>Attachment Not Found</h1>",
-            ),
-            status=404,
-        )
-    message = client.get(f"/_emails/{email}/msg/{message_uuid}/")["json"]
-    attachment = message["attachments"][int(attachment_index)]
-    return FileResponse(
-        BytesIO(client.get(attachment["attachment_url"], format=None)["content"]),
-        as_attachment=False,
-        filename=attachment["filename"],
-    )
-
-
 def message_list_view(request, email_address):
     if not request.user.id:
         return Response(
@@ -313,7 +296,7 @@ def message_list_view(request, email_address):
     j = client.get(url).json()
     j = page_adapter(request, j, f"/{email_address}/messages/")
     j = page_result_adapter(request, j, email_message_adapter)
-    return Response(j)
+    return Response(j, template_name='message_list.html')
 
 
 def message_detail_view(request, email_address, message_uuid):
@@ -327,10 +310,11 @@ def message_detail_view(request, email_address, message_uuid):
         {"address": email_address}, safe="@"
     )
     j = client.get(url).json()
-    if not j["count"] != "1":
+    if j["count"] != 1:
         return Response("ohno, not found", status=404)
     message = client.get(f"/_emails/{email_address}/msg/{message_uuid}/").json()
-    if request.method == "POST" and "delete" in request.data:
+    print(message)
+    if request.method == "DELETE" or "delete" in request.data:
         error = delete_message(email, message_uuid)
         if not error:
             # todo just show deleted confirmation
@@ -351,20 +335,72 @@ def email_detail_view(request, email_address):
     user_id = request.user.id
     if not user_id:
         return Response(
-            f"""<html><a href="/_login?next={ request['path'] }"> Log in required.</a>"""
+            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
         )
 
-    data = user_email_detail(request, user_id, email_address)
-    if not data:
+    url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
+        {"address": email_address}, safe="@"
+    )
+    print(url)
+    j = client.get(url).json()
+    internal_data = j["results"][0]
+    if j["count"] == 1:
+        email_data = email_adapter(request, internal_data)
+    if not email_data:
         return Response("not found", status=404)
 
-    if request.method == "POST" and "delete" in request["data"]:
+    schema = {
+        "title": "Update Email settings",
+        "type": "object",
+        "properties": {
+            "callback_url": {
+                "type": "string",
+                "title": "Callback URL",
+                "description": "Public url that will receive notification on new emails",
+                "minLength": 0,
+                "default": "",
+                "format": "uri",
+                "pattern": "^(https|http)://.*|",
+            }
+        },
+    }
+    TEMPLATE_CONTEXT["schema"] = schema
+
+    if request.method == "OPTIONS":
+        return Response({"schema": schema}, template_name="rest_framework_base.html")
+
+    form = JSONSchemaForm(
+        data=request.data or {"json": json.dumps(email_data)},
+        schema=schema,
+        options=schema_options,
+        ajax=False,
+    )
+
+    TEMPLATE_CONTEXT["form"] = form
+    if "delete" in request.data or request.method == 'DELETE':
         error = delete_email(email)
         if not error:
             return Response(status=302, headers={"location": "/"})
-        return Response(error)
+        form.add_error(None, error)
+    elif request.method == "POST":
+        if form.is_valid():
+            r = client.patch(
+                internal_data["url"],
+                data={"callback_url": form.cleaned_data["json"]["callback_url"]},
+            )
+            if r.status_code == 200:
+                return Response(status=302, headers={"location": email_data["url"]})
+            else:
+                for k, v in r.json().items():
+                    if k in form.fields:
+                        form.add_error(k, v)
+                    else:
+                        form.add_error(None, v)
 
-    return Response(data, template_name="rest_framework_base.html")
+    if request.accepted_renderer.format == "json":
+        if form.errors:
+            email_data = form.errors.get_json_data()
+    return Response(email_data, template_name="email_detail.html")
 
 
 def email_attachment_adapter(request, e, a):
@@ -376,11 +412,12 @@ def email_attachment_adapter(request, e, a):
 
 
 def email_message_adapter(request, e):
-    print(e)
     r = {}
     r["url"] = request.build_absolute_uri(
         "/" + e["account"] + f"/messages/{e['uuid']}/"
     )
+    r["frm"] = e["frm"]
+    r["to"] = e["to"]
     r["subject"] = e["subject"]
     r["text"] = e["text"]
     r["html"] = e["html"]
@@ -433,7 +470,7 @@ def user_email_detail(request, user_id, email_address):
     print(url)
     j = client.get(url).json()
     if j["count"] == 1:
-        return email_adapter(request, j["results"][0])
+        return j["results"][0], email_adapter(request, j["results"][0])
     return None
 
 
@@ -589,13 +626,19 @@ get = handle
 post = handle
 delete = handle
 
-
-def http_error(data):
-    return Response(json.dumps({"an error": data}), content_type="application/json")
+options = handle
 
 
-def template_error(exception):
-    return json.dumps({"template_error": exception})
+# global store for things we want in the html, but are not the core data
+
+TEMPLATE_CONTEXT = {}
+
+
+def add_context(request):
+    return TEMPLATE_CONTEXT
+
+
+CONTEXT_PROCESSORS = [add_context]
 
 
 def test_home():

@@ -41,10 +41,16 @@
         .pad {
           padding: 40px 0;
         }
+        label[for=id_json] {
+          display: none;
+        }
       </style>
       <script src="{% static "rest_framework/js/jquery-3.3.1.min.js" %}"></script>
       <script src="{% static "js/bootstrap.js" %}"></script>
       <script src="{% static "js/bootstrap-extras.js" %}"></script>
+      <script src="{% static "js/jsoneditor.min.js" %}"></script>
+      <script src="{% static "js/jsoneditor_init.js" %}"></script>
+
     {% endblock %}
   </head>
 

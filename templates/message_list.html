@@ -16,10 +16,9 @@
   <table class="table table-hover">
     <thead>
       <tr>
-        <th>Address</th>
-        <th>Callback URL</th>
-        <th>Inbox Size</th>
-        <th>Messages</th>
+        <th>From</th>
+        <th>To</th>
+        <th>Subject</th>
         <th></th>
       </tr>
     </thead>
@@ -27,19 +26,19 @@
       {% for r in results %}
         <tr>
           <td>
-            {{ r.address }} 
+            {{ r.frm }} 
           </td>
           <td>
-            {{ r.callback_url | default:"None" }} 
+            {{ r.to }} 
           </td>
           <td>
-            {{ r.messege_length_sum |filesizeformat }}
+            {{ r.subject }}
           </td>
           <td>
-            <a href="{{ r.messages }}" >{{ r.message_count }} Message{{ r.message_count|pluralize }}</a>
+            {{ r.message | truncatechars:100 }}
           </td>
           <td>
-            <a href="{{ r.url }}">Edit</a>
+            <a href="{{ r.url }}">View</a>
 
           </td>
         </tr>
