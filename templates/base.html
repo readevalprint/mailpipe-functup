@@ -11,26 +11,64 @@
 
       <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
       <title>{% block meta_title %}Mailpipe{% endblock %} </title>
+      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
-      <link rel="stylesheet" type="text/css" href="{% static "bootstrap/css/bootstrap.min.css" %}"/>
-      <link rel="stylesheet" type="text/css" href="{% static "bootstrap/css/bootstrap-responsive.css" %}"/>
+
+      <script src="{% static "rest_framework/js/jquery-3.3.1.min.js" %}"></script>
+      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+      <script src="{% static "js/jsoneditor.min.js" %}"></script>
+      <script src="{% static "js/jsoneditor_init.js" %}"></script>
+      <script src="{% static "rest_framework/js/prettify-min.js" %}"></script>
+      <script src="{% static "rest_framework/js/default.js" %}"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
       <style type="text/css">
         body {
           padding-top: 20px;
           padding-bottom: 40px;
         }
 
+
+        /* Featurettes
+        ------------------------- */
+
+        .featurette-divider {
+          margin: 5rem 0; /* Space out the Bootstrap <hr> more */
+        }
+
+        /* Thin out the marketing headings */
+        .featurette-heading {
+          font-weight: 300;
+          line-height: 1;
+          letter-spacing: -.05rem;
+        }
+
+
+        /* RESPONSIVE CSS
+        -------------------------------------------------- */
+
+        @media (min-width: 40em) {
+          /* Bump up size of carousel content */
+          .carousel-caption p {
+            margin-bottom: 1.25rem;
+            font-size: 1.25rem;
+            line-height: 1.4;
+          }
+
+          .featurette-heading {
+            font-size: 50px;
+          }
+        }
+
+        @media (min-width: 62em) {
+          .featurette-heading {
+            margin-top: 5rem;
+          }
+        }
+
+
         /* Custom container */
 
-        .home .container {
-        }
-        .home .masthead h1 {
-          display: none;
-        }
-        .home .masthead .muted {
-          display: none;
-        }
-        .home .masthead hr {
+        .welcome .masthead-brand{
           display: none;
         }
 
@@ -47,11 +85,7 @@
 
 
       </style>
-      <script src="{% static "rest_framework/js/jquery-3.3.1.min.js" %}"></script>
-      <script src="{% static "js/bootstrap.js" %}"></script>
-      <script src="{% static "js/bootstrap-extras.js" %}"></script>
-      <script src="{% static "js/jsoneditor.min.js" %}"></script>
-      <script src="{% static "js/jsoneditor_init.js" %}"></script>
+
 
     {% endblock %}
   </head>
@@ -60,37 +94,38 @@
     <div class="container">
 
       {% block masthead %}
-        <div class="masthead">
-          <ul class="nav nav-pills pull-right">
+        <div class="masthead" role="navigation">
+          <div class="masthead-brand">
+            <h1><a class="header" class="" href="/welcome/"> Mailpipe</a></h1>
+            <small class="muted">A simple API for incoming email.</small>
+          </div>
+          <ul class="nav nav-pills justify-content-end">
             {% if user.is_authenticated %}
-              <li>
-              <a href="/welcome/">Welcome</a>
+              <li class="nav-item">
+              <a class="nav-link" href="/welcome/">Welcome</a>
               </li>
-              <li>
-              <a href="/">Inboxes</a>
+              <li  class="nav-item">
+              <a class="nav-link" href="/">Inboxes</a>
               </li>
-              <li>
-              <a href="/topup/">Balance {{ balance|floatformat:8 }} BTC</a>
+              <li class="nav-item">
+              <a class="nav-link" href="/topup/">Balance {{ balance|floatformat:8 }} BTC</a>
               </li>
-              <li>
-              <a href="/plans/">Plan</a>
+              <li class="nav-item">
+              <a  class="nav-link" href="/plans/">Plan</a>
               </li>
-              <li>
-              <a href="/transactions/">Transactions</a>
+              <li class="nav-item">
+              <a class="nav-link"  href="/transactions/">Transactions</a>
               </li>
-              <li>
+              <li class="nav-item">
               <form action='/_logout' method="POST">
-                <button class='btn btn-link' type="submit">Logout</button>
+                <button class="btn btn-link nav-link" type="submit">Logout {{ user.username }}</button>
                 {% csrf_token %}
               </form>
               </li>
             {% else %}
-              <li><a href="/_login">Log in</a></li>
+              <li class="nav-item"><a  class="nav-link" href="/_login">Log in</a></li>
             {% endif %}
           </ul>
-          <h1><a class="header" class="" href="/"> Mailpipe</a></h1>
-          <small class="muted">A simple API for incoming email.</small>
-          <hr>
         </div>
       {% endblock %}
 
@@ -99,14 +134,11 @@
         {{ content }}
       {% endblock %}
     </div>
-    <script src="{% static "mailpipe_io/js/bootstrap-ajax.js" %}"></script>
-    <script src="{% static "rest_framework/js/prettify-min.js" %}"></script>
-    <script src="{% static "rest_framework/js/default.js" %}"></script>
 
     <script>
       $(function(){
         var activeurl = window.location.pathname;
-        $('a[href="'+activeurl+'"]').parent('li').addClass('active');
+        $('a[href="'+activeurl+'"]').addClass('active');
       })
     </script>
     <script>

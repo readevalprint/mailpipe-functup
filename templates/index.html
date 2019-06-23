@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 {% load static %}
 
@@ -6,125 +5,90 @@
   Home - {{ block.super }}
 {% endblock %}
 
-{% block bodyclass %}home{% endblock%}
+{% block bodyclass %}welcome{% endblock%}
 
 
 {% block content %}
 
-  <div class="row pad">
-    <div class="span4">
-      <img class="img-responsive" src="{% static "flow.png" %}">
-    </div>
-    <div class="span6">
-      <h1>Mailpipe</h1>
-      <p class="lead">a simple API to start receiving email in your app in 5 minutes.
-      </p>
+  <div class="position-relative overflow-hidden p-3 p-md-5 m-md-3 text-center bg-light" style="background: no-repeat  top/cover url(/static/images/mailpipe-tile.jpg)">
+    <div class="col-md-5 p-lg-5 mx-auto my-5">
+
+      <h1 class="display-4 font-weight-normal">Mailpipe</h1>
+      <p class="lead font-weight-normal">A simple API for incoming email.</p>
+
       {% if user.is_authenticated %}
-        <a href="/demo" class="btn">Walk through the demo</a>
+        <a href="/demo" class="btn btn-primary">Walk through the demo</a>
       {% else %}
         <form action="/_login?lazy&next=/demo" method=POST>
           {% csrf_token %}
-          <button class="btn btn-large">Let me try it!</button>
+          <button class="btn btn-large btn-outline-secondary">Let me try it!</button>
           <a href="/_login" class="btn btn-large btn-primary">Sign me up!</a>
         </form>
       {% endif %}
     </div>
+    <div class="product-device box-shadow d-none d-md-block"></div>
+    <div class="product-device product-device-2 box-shadow d-none d-md-block"></div>
   </div>
 
-  <div class="row gray pad">
-    <div class="span9">
-      <h2>Why Mailpipe?</h2>
+  <div class="row featurette p-3 p-md-5 m-md-3">
+    <div class="col-md-7">
+      <h2 class="featurette-heading">Why Mailpipe? <span class="text-muted">It's too easy...</span></h2>
       <p class="lead">
       Dynamically generate email addresses for your users<br>
       Retrieve emails on your own time<br>
-      Automatic parsing and content type for attachments regardless of size<br>
-      Develop your app without a public webserver<br>
+      Automatic extraction of attachments<br>
+      Develop your app without a public web server<br>
       </p>
     </div>
-    <div class="span3">
-      <img src="{% static "filter-transparent.png" %}">
+    <div class="col-md-5">
+      <img class="img-fluid"  src="{% static "filter-transparent.png" %}">
     </div>
   </div>
 
-  <div class="row">
-    <table class="table table-hover">
-      <thead>
-        <tr>
-          {% for name, plan in plans.items %}
-            <th>
-              <h2 class=""> {{ plan.name }} </h2>
-
-            </th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              <h3> {{ plan.price.BTC|floatformat:8 }} BTC</h3>
-            </td>
-          {% endfor %}
-        </tr>
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              {% if plan.features.max_inboxes == 'UNLIMITED' %}
-                <strong>UNLIMITED</strong> inboxes!
-              {% else %}
-                Up to <strong>{{ plan.features.max_inboxes }}</strong> inboxes
-              {% endif %}
-            </td>
-          {% endfor %}
-        </tr>
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              Optional callback URL
-            </td>
-          {% endfor %}
-        </tr>
-
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              Create inboxes using mailpipe.io 
-            </td>
-          {% endfor %}
-        </tr>
-
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              {% if  plan.features.custom_mx %}
-                Custom MX records!
-              {% else %}
-                <span style="text-decoration: line-through">  Custom MX records</span>
-              {% endif %}
-            </td>
-          {% endfor %}
-        </tr>
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              <a class="btn btn-primary btn-block btn-large" href="/plans/{{ name }}">Buy now!</a>
-            </td>
-          {% endfor %}
-        </tr>
-        <tr>
-          {% for name, plan in plans.items %}
-            <td>
-              <h3> {% for d, t in plan.duration.items %}
-                  {{t}}  {{ d }}
-                {% endfor %}</h3>
-            </td>
-          {% endfor %}
-        </tr>
-
-      </tbody>
-    </table>
-
-
-
+  <div class="pricing-header px-3 py-3 pt-md-5 pb-md-4 mx-auto text-center">
+    <h1 class="display-4">Pricing</h1>
+    <p class="lead">Start programmatically receiving email for your users in just a few seconds</p>
   </div>
+  <div class="container">
+    <div class="card-deck mb-3 text-center">
+      {% for name, plan in plans.items %}
+        <div class="card mb-4 box-shadow">
+          <div class="card-header">
+            <h4 class="my-0 font-weight-normal"> {{ plan.name }} </h4>
+          </div>
+          <div class="card-body">
+            <h1 class="card-title pricing-card-title"> {{ plan.price.BTC }} BTC </h1>
+            <ul class="list-unstyled mt-3 mb-4">
+              {% if plan.features.max_inboxes == 'UNLIMITED' %}
+                <li><strong>UNLIMITED</strong> inboxes!</li>
+              {% else %}
+                <li>Up to <strong>{{ plan.features.max_inboxes }}</strong> inboxes</li>
+              {% endif %}
+              <li>API access</li>
+              <li>Email support</li>
+              {% if  plan.features.callback %}
+                <li> Callback URL </li>
+              {% endif %}
+              {% if  plan.features.custom_mx %}
+                <li>Custom domain</li>
+              {% endif %}
+            </ul>
+          </div>
+          <div class="card-footer ">
+            {% if plan.recommended %}
+              <span class="text-muted">Recommended</span>
+              <a class="btn btn-lg btn-block btn-primary" href="/plans/{{ name }}">Choose plan</a>
+              <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
+            {% else %}
+              <a class="btn btn-lg btn-block btn-outline-primary" href="/plans/{{ name }}">Choose plan</a>
+              <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
+            {% endif %}
+          </div>
+        </div>
+
+      {% endfor %}
+
+    </div>
+  </div>
+
 {% endblock %}

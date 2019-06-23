@@ -6,18 +6,21 @@
 
 
   {% if profile.current_plan %}
-  Current plan: {{ profile.current_plan }}
+    Current plan: {{ profile.current_plan }}
   {% else %}
-  Current plan: Demo account
+    Current plan: Demo account
   {% endif %}
 
   <ul class="nav nav-tabs">
     {% for slug, plan in plans.items %}
-      <li><a href="/plans/{{ slug }}"> {{ plan.name }}</a></li>
+      <li class="nav-item">
+
+      <a class="nav-link"  href="/plans/{{ slug }}/"> {{ plan.name }}</a>
+      </li>
     {% endfor %}
   </ul>
 
-  
+
 
   {% for name, plan in plans.items %}
     {{ name }}, {{ plan }}

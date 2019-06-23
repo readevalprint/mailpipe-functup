@@ -27,27 +27,28 @@ import os
 UNLIMITED = "UNLIMITED"
 FEATURES = {
     "personal": {"max_inboxes": 10},
-    "pro": {"max_inboxes": 100},
-    "enterprise": {"max_inboxes": UNLIMITED, "custom_mx": True},
+    "pro": {"max_inboxes": 100, "callback": True},
+    "enterprise": {"max_inboxes": UNLIMITED, "custom_mx": True, "callback": True},
 }
 
 PLANS = {
-    "basic90": {
+    "basic30": {
         "name": "Basic",
         "features": FEATURES["personal"],
-        "duration": {"days": 90},
+        "duration": {"days": 30},
         "price": {"BTC": Decimal("0.00055")},
     },
-    "extra90": {
+    "extra30": {
         "name": "Extra",
         "features": FEATURES["pro"],
-        "duration": {"days": 90},
+        "duration": {"days": 30},
         "price": {"BTC": Decimal("0.005")},
+        "recommended": True,
     },
-    "super90": {
+    "super30": {
         "name": "Super",
         "features": FEATURES["enterprise"],
-        "duration": {"days": 90},
+        "duration": {"days": 30},
         "price": {"BTC": Decimal("0.033")},
     },
 }
@@ -58,7 +59,7 @@ for p in PLANS:
 
 schema_options = {
     "required_by_default": True,
-    "theme": "bootstrap2",
+    "theme": "bootstrap4",
     "no_additional_properties": True,
     "disable_collapse": True,
     "disable_edit_json": True,
@@ -322,7 +323,7 @@ def welcome_view(request):
 def email_list_view(request):
     user_id = request.user.id
     if not user_id:
-        return Response(status=302, headers={"Location": "/welcome"})
+        return Response(status=302, headers={"Location": "/welcome/"})
     # should only be one but you never know
     profile = get_or_create_profile(user_id)
     errors = {}
@@ -340,6 +341,7 @@ def email_list_view(request):
     schema = {
         "title": "Create new inbox",
         "type": "object",
+        "format": "grid",
         "properties": {
             "address": {
                 "type": "string",
@@ -843,6 +845,11 @@ def transaction_view(request):
 
 
 def plan_view(request, selected_plan):
+    if not selected_plan or (selected_plan not in PLANS):
+        for k, p in PLANS.items():
+            if p.get("recommended"):
+                return Response(status=302, headers={"Location": f"/plans/{k}/"})
+
     user_id = request.user.id
     if not user_id:
         return Response(
@@ -939,7 +946,7 @@ urls = [
     (r"/topup/", topup_view),
     (r"/transactions/", transaction_view),
     (r"/update_invoice/", update_invoice_view),
-    (r"/plans/(?P<selected_plan>.*)", plan_view),
+    (r"/plans/(?P<selected_plan>[a-z0-9]*)/", plan_view),
     (r"/static/(?P<path>.*)$", static),
 ]
 
