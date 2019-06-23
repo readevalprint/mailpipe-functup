@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% load static %}
+{% block content %}
+
+ {% if detail %}
+ <div class="alert alert-info">
+{{ detail }}
+</div>
+{% endif %}
+  <form id="" action='' method="POST">
+    <input type="submit" value="Delete" class="btn btn-danger">
+    <input type="hidden" name="delete" value="1">
+    {% csrf_token %}
+  </form>
+<h2>Meta data</h2>
+<pre>
+From: {{ frm }}
+To: {{ to }}
+Subject: {{ subject }}
+</pre>
+<h2>Attachments</h2>
+
+<ul class="thumbnails">
+
+{% for a in attachments %}
+ <li class="span2">
+    <a href="{{ a.attachment_url }}" class="thumbnail">
+    {% if 'image/' in a.content_type %}
+ <img src="{{ a.attachment_url }}" alt="">
+      {% endif %}
+<div class="caption">
+ Filename: {{ a.filename }} <br>
+Content type: {{ a.content_type }}
+</div>
+    </a>
+  </li>
+{% empty %}
+ <li>No attachments</li>
+{% endfor %}
+</ul>
+
+
+<h2>Text</h2>
+<pre>{{ text }}</pre>
+<h2>Html</h2>
+<pre>{{ html }}</pre>
+</pre>
+{% endblock %}

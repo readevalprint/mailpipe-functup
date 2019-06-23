@@ -1,5 +1,5 @@
 # vim: syntax=python
-
+from uuid import uuid4
 import base64
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
 import html
@@ -11,6 +11,7 @@ import simplejson as json
 from decimal import Decimal
 from time import monotonic
 from urllib import parse
+from requests.exceptions import HTTPError
 
 import re2
 from io import BytesIO
@@ -18,17 +19,42 @@ from html import escape
 
 client = APIClient()
 
-RATE = {"sats_per_address": 10000, "sats_per_byte": 1, "sats_per_message": 0}
 BTC = Decimal(10 ** 8)
 
 from btcpay import BTCPayClient
 import os
 
-# btcpayclient = BTCPayClient(
-#    host=os.environ["BTCPAYSERVER_HOST"),
-#    pem=os.environ["BTCPAYSERVER_PEM"],
-#    tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
-# )
+UNLIMITED = "UNLIMITED"
+FEATURES = {
+    "personal": {"max_inboxes": 10},
+    "pro": {"max_inboxes": 100},
+    "enterprise": {"max_inboxes": UNLIMITED, "custom_mx": True},
+}
+
+PLANS = {
+    "basic90": {
+        "name": "Basic",
+        "features": FEATURES["personal"],
+        "duration": {"days": 90},
+        "price": {"BTC": Decimal("0.00055")},
+    },
+    "extra90": {
+        "name": "Extra",
+        "features": FEATURES["pro"],
+        "duration": {"days": 90},
+        "price": {"BTC": Decimal("0.005")},
+    },
+    "super90": {
+        "name": "Super",
+        "features": FEATURES["enterprise"],
+        "duration": {"days": 90},
+        "price": {"BTC": Decimal("0.033")},
+    },
+}
+
+for p in PLANS:
+    PLANS[p]["price"]["sats"] = PLANS[p]["price"]["BTC"] * BTC
+
 
 schema_options = {
     "required_by_default": True,
@@ -43,7 +69,7 @@ schema_options = {
 def delete_email(email):
     r2 = None
     r2 = client.delete(f"/_emails/{ email }/")
-    if r2["status_code"] == 204:
+    if r2.status_code == 204:
         return None
     return {"error": [email, r2]}
 
@@ -51,9 +77,9 @@ def delete_email(email):
 def delete_message(email, message_uuid):
     r2 = None
     r2 = client.delete(f"/_emails/{ email }/msg/{ message_uuid }/")
-    if r2["status_code"] == 204:
+    if r2.status_code == 204:
         return None
-    return {"error": [email, r2]}
+    return r2.content
 
 
 def add_email(request):
@@ -66,20 +92,26 @@ def add_email(request):
 
 
 def get_or_create_profile(user_id):
-    profile_res = client.get(f"/_data/v2/profile/{user_id}")
-    if profile_res.status_code == 200:
-        return profile_res.json
-    profile_res = client.get(f"/_data/v1/profile/{user_id}")
-    data = profile_res["json"]["data"]
-    data["user_id"] = user_id
-    profile = client.post(
-        "/_data", data={"path": f"v2/profile/{user_id}", "data": data}
-    )["json"]
-    bill_user(profile)
+    path = f"v2/profile/{user_id}"
+
+    profile_res = client.get(f"/_data/{path}")
+    if profile_res.status_code == 404:
+        data = {"user_id": user_id, "current_plan": None, "next_plan": None}
+        profile_res = client.put(f"/_data/{path}", data={"data": data, "path": path})
+        if profile_res.status_code != 201:
+            raise Exception(profile_res.json())
+    profile = profile_res.json()
+    TEMPLATE_CONTEXT["balance"] = Decimal(profile["data"].get("balance", 0)) / BTC
+    TEMPLATE_CONTEXT["profile"] = profile
     return profile
 
 
 def update_invoice(user_id, invoice_id):
+    btcpayclient = BTCPayClient(
+        host=os.environ["BTCPAYSERVER_HOST"],
+        pem=os.environ["BTCPAYSERVER_PEM"],
+        tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
+    )
     invoice = btcpayclient.get_invoice(invoice_id)
     amount = 0
     if invoice["status"] in ["complete", "confirmed"]:
@@ -157,67 +189,221 @@ def account_info(request, current_usage, profile, errors):
     return result
 
 
-def topup(request, user_id, profile):
-    amount = request["data"].get("amount", None) or request["query_params"].get(
-        "amount", "0"
-    )
-    amount = float(amount.strip())
-    if amount < 0.00001 or amount > 0.1:
-        return {"amount": "Amount must be between 0.1 and 0.00001"}
-    invoice = btcpayclient.create_invoice(
-        {
-            "price": amount,
-            "currency": "BTC",
-            "redirectURL": "https://" + settings["DOMAIN"],
-            "itemDescription": "top up",
-        }
-    )
-    client.post(
-        r"/_data",
-        data={
-            "path": rf'v1/transactions/{user_id}/{ invoice["id"] }',
-            "data": {"amount": 0, "invoice": invoice},
+def topup_view(request):
+    user_id = request.user.id
+    if not user_id:
+        return Response(status=302, headers={"Location": "/"})
+    profile = get_or_create_profile(user_id)
+    errors = {}
+
+    schema = {
+        "title": "Top up account credit",
+        "type": "object",
+        "properties": {
+            "amount": {
+                "type": "number",
+                "title": "Amount",
+                "description": "Amount to generate a new invoice for",
+                "minimum": 0.00001,
+                "maximum": 0.1,
+            }
         },
+    }
+    if request.method == "OPTIONS":
+        return Response({"schema": schema}, template_name="rest_framework_base.html")
+    TEMPLATE_CONTEXT["schema"] = schema
+    form = JSONSchemaForm(
+        data=request.data or None, schema=schema, options=schema_options, ajax=False
     )
-    r = client.patch(profile["url"], data={"data": profile["data"]})
-    if r["status_code"] == 200:
-        return None
-    return r["json"]
+
+    TEMPLATE_CONTEXT["form"] = form
+
+    data = {}
+    if request.method == "POST":
+        if form.is_valid():
+            btcpayclient = BTCPayClient(
+                host=os.environ["BTCPAYSERVER_HOST"],
+                pem=os.environ["BTCPAYSERVER_PEM"],
+                tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
+            )
+            amount = form.cleaned_data["json"]["amount"]
+            invoice = btcpayclient.create_invoice(
+                {
+                    "price": amount,
+                    "currency": "BTC",
+                    "redirectURL": "https://" + settings["DOMAIN"],
+                    "itemDescription": "top up",
+                    "notificationURL": rf"https://{settings['DOMAIN']}/update_invoice/",
+                }
+            )
+            client.post(
+                r"/_data",
+                data={
+                    "path": rf'v1/transactions/{user_id}/{ invoice["id"] }',
+                    "data": {"invoice": invoice, "user_id": user_id},
+                },
+            )
+            data = {
+                "invoice_url": invoice["url"],
+                "invoice_id": invoice["id"],
+                "expiration_time": invoice["expirationTime"],
+                "addresses": invoice["addresses"],
+            }
+            if request.accepted_renderer.format == "html":
+                return Response(status=302, headers={"Location": invoice["url"]})
+            # r = client.patch(profile["url"], data={"data": profile["data"]})
+            # if r.status_code == 200:
+
+            #    data = invoice
+            # else:
+            #    data = j.json()
+    new_invoices_res = client.get(
+        f"/_data?path__startswith=v1/transactions/{ user_id }/&data__invoice__status=new"
+    )
+    new_invoices = [
+        update_invoice(i["data"]["invoice"]["id"])
+        for i in new_invoices_res.json()["results"]
+    ]
+    if request.accepted_renderer.format == "json":
+        if form.errors:
+            data = form.errors.get_json_data()
+    if request.accepted_renderer.format == "html":
+        if any(new_invoices):
+            new_invoices_res = client.get(
+                f"/_data?path__startswith=v1/transactions/{ user_id }/&data__invoice__status=new"
+            )
+            new_invoices = new_invoices_res.json()["results"]
+            TEMPLATE_CONTEXT["new_invoices"] = new_invoices
+    return Response(data, template_name="topup.html")
+
+
+def update_invoice_view(request):
+    invoice_id = request.data.get("id", None) or request.query_params.get(
+        "invoice_id", "1111"
+    )
+    print("updating invoice")
+    print(invoice_id)
+    return Response(update_invoice(invoice_id))
+
+
+def update_invoice(invoice_id):
+    btcpayclient = BTCPayClient(
+        host=os.environ["BTCPAYSERVER_HOST"],
+        pem=os.environ["BTCPAYSERVER_PEM"],
+        tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
+    )
+    data = None
+    try:
+        invoice = btcpayclient.get_invoice(invoice_id)
+        r = client.get(f"/_data?data__invoice__id={ invoice_id }")
+        if r.status_code == 200 and r.json()["count"] == 1:
+            d = r.json()
+            transaction = r.json()["results"][0]
+            transaction["data"]["invoice"] = invoice
+            transaction["data"]["amount_sats"] = int(Decimal(invoice["btcPaid"]) * BTC)
+            r = client.patch(transaction["url"], data=transaction)
+            print(r.status_code)
+            data = invoice
+
+    except Exception as e:
+        print("Oh no")
+        print(e)
+    return data
 
 
 STATIC_URL = "/static/"
 
 
-def home(request):
+def welcome_view(request):
+    TEMPLATE_CONTEXT["plans"] = PLANS
+    return Response({}, template_name="index.html")
+
+
+def email_list_view(request):
     user_id = request.user.id
     if not user_id:
-        return Response({}, template_name="index.html")
+        return Response(status=302, headers={"Location": "/welcome"})
     # should only be one but you never know
     profile = get_or_create_profile(user_id)
     errors = {}
-    if request.method == "POST":
-        if "email" in request.data:
-            errors = add_email(request)
-            if not errors:
-                return Response(status=302, headers={"location": "/"})
-        if "amount" in request.data:
-            errors = topup(request, user_id, profile)
-            if not errors:
-                return Response(status=302, headers={"location": "/"})
-
-    next_page = f"/_data?data__owner={request.user.username}&path__startswith=v1/emails&page_size=10000"
+    # next_page = f"/_data?data__owner={request.user.username}&path__startswith=v1/emails&page_size=10000"
     # next_page = False
-    while next_page:
-        old_data_resp = client.get(next_page)
-        old_address_list = old_data_resp.json()["results"]
-        for oa in old_address_list:
-            r = client.patch(f"/_emails/{oa['data']['email']}/", {"user_id": user_id})
-            client.delete(oa["url"])
-        next_page = old_data_resp.json()["next"]
+    # while next_page:
+    #    old_data_resp = client.get(next_page)
+    #    old_address_list = old_data_resp.json()["results"]
+    #    for oa in old_address_list:
+    #        r = client.patch(f"/_emails/{oa['data']['email']}/", {"user_id": user_id})
+    #        client.delete(oa["url"])
+    #    next_page = old_data_resp.json()["next"]
 
-    emails = user_email_list(request, user_id)
-    # current_usage = get_current_usage(emails)
-    return Response(emails, template_name="email_list.html")
+    data = user_email_list(request, user_id)
+    schema = {
+        "title": "Create new inbox",
+        "type": "object",
+        "properties": {
+            "address": {
+                "type": "string",
+                "title": "Inbox email address",
+                "description": "Email address you want to receive email to",
+                "format": "email",
+            },
+            "callback_url": {
+                "type": "string",
+                "title": "Callback URL",
+                "description": "Public url that will receive notification on new emails",
+                "minLength": 0,
+                "default": "",
+                "format": "uri",
+                "pattern": "^(https|http)://.*|",
+            },
+        },
+    }
+    TEMPLATE_CONTEXT["schema"] = schema
+    if request.method == "OPTIONS":
+        return Response({"schema": schema}, template_name="rest_framework_base.html")
+
+    form = JSONSchemaForm(
+        data=request.data or None, schema=schema, options=schema_options, ajax=False
+    )
+
+    TEMPLATE_CONTEXT["form"] = form
+    if request.method == "POST":
+        if (
+            data["count"]
+            < (
+                profile["data"].get("current_plan", None)
+                or {"features": {"max_inboxes": 1}}
+            )["features"]["max_inboxes"]
+        ):
+            if form.is_valid():
+                r = client.post(
+                    "/_emails/",
+                    data={
+                        "callback_url": form.cleaned_data["json"]["callback_url"],
+                        "address": form.cleaned_data["json"]["address"],
+                        "user_id": user_id,
+                    },
+                )
+                if r.status_code == 201:
+                    email_data = email_adapter(request, r.json())
+                    return Response(status=302, headers={"Location": request.path})
+                else:
+                    for k, v in r.json().items():
+                        if k in form.fields:
+                            form.add_error(k, v)
+                        else:
+                            form.add_error(None, v)
+        else:
+            form.add_error(
+                None,
+                "You have used all your avalible inboxes. Please upgrade your plan or delete an existing inbox.",
+            )
+
+    if request.accepted_renderer.format == "json":
+        if form.errors:
+            data = form.errors.get_json_data()
+
+    return Response(data, template_name="email_list.html")
 
 
 def delete(request, email):
@@ -283,7 +469,8 @@ def message_list_view(request, email_address):
     j = client.get(url).json()
     if not j["count"] != "1":
         return Response("uh oh, not found", status=404)
-    data = j["results"][0]
+    email_data = j["results"][0]
+    TEMPLATE_CONTEXT["email"] = email_data
     d = {}
     page = request.query_params.get("page")
     if page:
@@ -292,11 +479,11 @@ def message_list_view(request, email_address):
     if page_size:
         d["page_size"] = page_size
 
-    url = data["messages"] + "?" + parse.urlencode(d)
+    url = email_data["messages"] + "?" + parse.urlencode(d)
     j = client.get(url).json()
     j = page_adapter(request, j, f"/{email_address}/messages/")
     j = page_result_adapter(request, j, email_message_adapter)
-    return Response(j, template_name='message_list.html')
+    return Response(j, template_name="message_list.html")
 
 
 def message_detail_view(request, email_address, message_uuid):
@@ -312,16 +499,24 @@ def message_detail_view(request, email_address, message_uuid):
     j = client.get(url).json()
     if j["count"] != 1:
         return Response("ohno, not found", status=404)
-    message = client.get(f"/_emails/{email_address}/msg/{message_uuid}/").json()
-    print(message)
+    r = client.get(f"/_emails/{email_address}/msg/{message_uuid}/")
+    message = r.json()
+    if r.status_code != 200:
+        return Response(
+            message, status=r.status_code, template_name="message_detail.html"
+        )
     if request.method == "DELETE" or "delete" in request.data:
-        error = delete_message(email, message_uuid)
+        error = delete_message(email_address, message_uuid)
         if not error:
             # todo just show deleted confirmation
-            return Response(status=302, headers={"location": fr"/{ email }/messages/"})
+            return Response(
+                status=302, headers={"location": fr"/{ email_address }/messages/"}
+            )
         return Response(error)
 
-    return Response(email_message_adapter(request, message))
+    return Response(
+        email_message_adapter(request, message), template_name="message_detail.html"
+    )
 
 
 def owns_email(user_id, email):
@@ -343,10 +538,10 @@ def email_detail_view(request, email_address):
     )
     print(url)
     j = client.get(url).json()
-    internal_data = j["results"][0]
     if j["count"] == 1:
+        internal_data = j["results"][0]
         email_data = email_adapter(request, internal_data)
-    if not email_data:
+    else:
         return Response("not found", status=404)
 
     schema = {
@@ -377,8 +572,8 @@ def email_detail_view(request, email_address):
     )
 
     TEMPLATE_CONTEXT["form"] = form
-    if "delete" in request.data or request.method == 'DELETE':
-        error = delete_email(email)
+    if "delete" in request.data or request.method == "DELETE":
+        error = delete_email(email_address)
         if not error:
             return Response(status=302, headers={"location": "/"})
         form.add_error(None, error)
@@ -437,8 +632,8 @@ def email_adapter(request, e):
     r["url"] = request.build_absolute_uri("/" + e["address"] + "/")
     r["address"] = e["address"]
     r["messages"] = request.build_absolute_uri("/" + e["address"] + "/messages/")
-    r["message_count"] = e["message_count"]
-    r["messege_length_sum"] = e["messege_length_sum"]
+    r["message_count"] = e.get("message_count")
+    r["messege_length_sum"] = e.get("messege_length_sum")
     r["callback_url"] = e["callback_url"]
 
     if request.query_params.get("format"):
@@ -589,8 +784,148 @@ def static(request, path):
     return Response(r.content, status=404)
 
 
+def transaction_adaptor(request, t):
+    d = {
+        "created": t["created"],
+        "updated": t["updated"],
+        "amount": Decimal(t["data"].get("amount_sats", 0)) / BTC,
+    }
+    if "plan" in t["data"]:
+        d[
+            "info"
+        ] = f"Purchase  {t['data']['plan']['features']['max_inboxes'] } inboxes for { ' '.join(t['data']['plan']['duration'].items()) } "
+
+    if "invoice" in t["data"]:
+        d["info"] = "Balance topup"
+        d["invoice_url"] = t["data"]["invoice"]["url"]
+        d["invoice_id"] = t["data"]["invoice"]["id"]
+        d["invoice_price"] = t["data"]["invoice"]["price"]
+        d["status"] = t["data"]["invoice"]["status"]
+
+    if "rebated_plan" in t["data"]:
+        d["info"] = "Rebate for remaining time"
+
+    return d
+
+
+def transaction_view(request):
+    user_id = request.user.id
+    if not user_id:
+        return Response(
+            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
+        )
+    profile = get_or_create_profile(user_id)
+    page = request.query_params.get("page", None)
+    d = {}
+    if page:
+        d["page"] = page
+    page_size = request.query_params.get("page_size", None)
+    if page_size:
+        d["page_size"] = page_size
+    d["path__startswith"] = f"v1/transactions/{user_id}"
+    url = f"/_data?" + parse.urlencode(d)
+    r = client.get(url)
+    data = []
+    if r.status_code == 200:
+        data = r.json()
+
+    balance = 0
+    for t in data.get("results", []):
+        balance = balance + t["data"].get("amount_sats", 0)
+
+    profile["data"]["balance"] = balance
+    client.patch(profile["url"], data={"data": profile["data"]})
+
+    profile = get_or_create_profile(user_id)
+    data = page_adapter(request, data, "/transactions/")
+    data = page_result_adapter(request, data, transaction_adaptor)
+    return Response(data, template_name="transaction_list.html")
+
+
+def plan_view(request, selected_plan):
+    user_id = request.user.id
+    if not user_id:
+        return Response(
+            status=302, headers={"Location": f"/_login?lazy&next={request.path}"}
+        )
+    profile = get_or_create_profile(user_id)
+    schema = {"type": "string", "enum": list(PLANS.keys())}
+    TEMPLATE_CONTEXT["schema"] = schema
+    TEMPLATE_CONTEXT["plans"] = PLANS
+
+    if request.method == "OPTIONS":
+        return Response({"schema": schema}, template_name="rest_framework_base.html")
+
+    data = {}
+    form = JSONSchemaForm(
+        data=request.data or None, schema=schema, options=schema_options, ajax=False
+    )
+
+    TEMPLATE_CONTEXT["form"] = form
+
+    if request.method == "POST":
+        if form.is_valid():
+            print("valid")
+            present = arrow.utcnow()
+            current_plan = profile["data"].get("current_plan", None)
+            rebate_amount = 0
+            if current_plan:
+                current_start = arrow.get(current_plan["start"])
+                current_end = arrow.get(current_plan["end"])
+                rebate_amount = current_plan["price"]["sats"] * (
+                    (current_end - present) / (current_end - current_start)
+                )
+            new_plan = PLANS[form.cleaned_data["json"]]
+            if (
+                rebate_amount + profile["data"].get("balance", 0)
+                >= new_plan["price"]["sats"]
+            ):
+                print("adding plan")
+                print(new_plan)
+                new_plan["start"] = present.isoformat()
+                new_plan["end"] = present.shift(**new_plan["duration"]).isoformat()
+                profile["data"]["current_plan"] = new_plan
+                client.patch(profile["url"], data={"data": profile["data"]})
+
+                # add rebate if needed
+                if rebate_amount > 0:
+                    r = client.post(
+                        r"/_data",
+                        data={
+                            "path": rf"v1/transactions/{user_id}/{ uuid4() }",
+                            "data": {
+                                "amount_sats": rebate_amount,
+                                "rebated_plan": current_plan,
+                                "user_id": user_id,
+                            },
+                        },
+                    )
+                # make new current plan
+                r = client.post(
+                    r"/_data",
+                    data={
+                        "path": rf"v1/transactions/{user_id}/{ uuid4() }",
+                        "data": {
+                            "amount_sats": -new_plan["price"]["sats"],
+                            "plan": new_plan,
+                            "user_id": user_id,
+                        },
+                    },
+                )
+            else:
+                form.add_error(None, "insufficient balance")
+
+    if request.accepted_renderer.format == "json":
+        if form.errors:
+            data = form.errors.get_json_data()
+        else:
+            data = invoice
+    return Response(data, template_name="plans.html")
+
+
 urls = [
-    (r"/$", home),
+    (r"/welcome/$", welcome_view),
+    (r"/$", email_list_view),
     (r"/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
     (r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
     (
@@ -601,11 +936,18 @@ urls = [
         r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
         attachment_detail,
     ),
+    (r"/topup/", topup_view),
+    (r"/transactions/", transaction_view),
+    (r"/update_invoice/", update_invoice_view),
+    (r"/plans/(?P<selected_plan>.*)", plan_view),
     (r"/static/(?P<path>.*)$", static),
 ]
 
 
 def handle(request):
+    if request.domain != settings["DOMAIN"]:
+        return Response({"content": "not found"}, status=404, template_name="base.html")
+
     for path_re, view in urls:
         m = re2.match(path_re, request.path)
         if m:
@@ -634,11 +976,15 @@ options = handle
 TEMPLATE_CONTEXT = {}
 
 
-def add_context(request):
+def add_template_context(request):
     return TEMPLATE_CONTEXT
 
 
-CONTEXT_PROCESSORS = [add_context]
+def add_user_context(request):
+    return {"user": request.user}
+
+
+CONTEXT_PROCESSORS = [add_template_context, add_user_context]
 
 
 def test_home():
@@ -652,7 +998,3 @@ def test_emails():
 
 def test_404():
     resp = handle({"path": "/non-existant"})
-
-
-def test_http_error():
-    resp = http_error({"some": "data"})

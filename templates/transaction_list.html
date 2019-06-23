@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+
 {% block content %}
+{{ block.super }}
   {% if detail %}
     <div class="alert alert-info">
       {{ detail }}
@@ -16,38 +18,36 @@
   <table class="table table-hover">
     <thead>
       <tr>
-        <th>From</th>
-        <th>To</th>
-        <th>Subject</th>
+        <th>amount</th>
         <th></th>
+        <th>info</th>
+        <th>created</th>
       </tr>
     </thead>
     <tbody>
       {% for r in results %}
         <tr>
           <td>
-            {{ r.frm }} 
+            {{ r.amount | floatformat:8}}  BTC
           </td>
           <td>
-            {{ r.to }} 
+            {% if r.status == 'new' %}
+              {% if r.invoice_url %}
+                <button class="btn btn-success btn-small" onclick=window.btcpay.showInvoice("{{r.invoice_id}}") data-loading-text="Loading...">Show invoice</button>
+                <a href="{{ r.invoice_url }}" target="blank"> Link to invoice</a>
+              {% endif %}
+            {% else %}
+              {{ r.status }}
+            {% endif %}
           </td>
           <td>
-            {{ r.subject }}
+            {{ r.info }}  
+            {% if r.invoice_price %}
+            {{ r.invoice_price }} BTC 
+            {% endif %}
           </td>
           <td>
-            {{ r.message | truncatechars:100 }}
-          </td>
-          <td>
-            <a href="{{ r.url }}">View</a>
-
-          </td>
-          <td>
-
-            <form id="" action='{{ r.url }}' method="POST">
-              <input type="submit" value="Delete" class="btn btn-danger">
-              <input type="hidden" name="delete" value="1">
-              {% csrf_token %}
-            </form>
+            {{ r.created }} 
           </td>
         </tr>
       {% endfor %}
@@ -55,9 +55,7 @@
   </table>
   {% if not results %}
     <div class="alert alert-block alert-info">
-      <h4>No messages here...</h4>
-      Try giving someone this address to test it.
-      <a href="mailto:{{ email.address }}">{{ email.address }}</a>
+      <h4>No transaction here...</h4>
     </div>
   {% endif %}
 {% endblock %}

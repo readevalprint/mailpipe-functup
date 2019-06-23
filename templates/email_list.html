@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+
 {% block content %}
   {% if detail %}
     <div class="alert alert-info">
@@ -13,6 +14,39 @@
       <a class="btn" href="{{ next }}">Next Page</a>
     {% endif %}
   </div>
+
+
+  {% if form.non_field_errors %}
+    {% for error in form.non_field_errors %}
+      <div class="alert alert-danger" role="alert">
+        {{ error }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if form.json.errors %}
+    <div class="alert alert-danger" role="alert">
+      {% for error in form.json.errors %}
+        {{ error }}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+
+  <form id="" action='' method=POST>
+    {% for field in form %}
+      <div class="fieldWrapper">
+        {{ field }}
+        {% if field.help_text %}
+          <p class="help">{{ field.help_text|safe }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+    {% csrf_token %}
+    <button class="btn" id='submit'>Create</button>
+  </form>
+
+
   <table class="table table-hover">
     <thead>
       <tr>
@@ -20,14 +54,13 @@
         <th>Callback URL</th>
         <th>Inbox Size</th>
         <th>Messages</th>
-        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for r in results %}
-        <tr>
+        <tr onclick="window.location='{{ r.messages }}';" class="clickableRow">
           <td>
-            {{ r.address }} 
+            <a href="{{ r.url }}">{{ r.address }} </a>
           </td>
           <td>
             {{ r.callback_url | default:"None" }} 
@@ -38,13 +71,15 @@
           <td>
             <a href="{{ r.messages }}" >{{ r.message_count }} Message{{ r.message_count|pluralize }}</a>
           </td>
-          <td>
-            <a href="{{ r.url }}">Edit</a>
-
-          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% if not results %}
+    <div class="alert alert-block alert-info">
+      <h4>No inboxes yet</h4>
+      Go ahead and create an inbox :D
+    </div>
+  {% endif %}
 {% endblock %}
 

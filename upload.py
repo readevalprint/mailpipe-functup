@@ -1,5 +1,6 @@
 import requests, json, os
 from pathlib import Path
+import mimetypes
 
 TOKEN = os.environ["TOKEN"]
 DOMAIN = os.environ["DOMAIN"]
@@ -16,6 +17,7 @@ def upload_templates():
                 verify=0,
                 data={"data": json.dumps(f.read()), "path": path},
             )
+            print(r.status_code)
 
 
 def upload_static():
@@ -27,7 +29,7 @@ def upload_static():
                 headers={"Authorization": f"Token {TOKEN}"},
                 verify=0,
                 files={"file": f},
-                data={"data": 1, "path": path},
+                data={"path": path},
             )
             if r.status_code == 500:
                 print("ERROR:", r.content.decode())
@@ -42,7 +44,8 @@ def upload_code():
             verify=0,
             data={"code": f.read()},
         )
-        print(r.content.decode())
+        if r.status_code not in [200, 201]:
+            print('\n'.join(r.json()['code']))
 
 if __name__ == '__main__':
     import argparse
@@ -54,9 +57,9 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--static', action='store_true')
     args = parser.parse_args()
 
+    if args.code:
+        upload_code()
     if args.static:
         upload_static()
     if args.templates:
         upload_templates()
-    if args.code:
-        upload_code()

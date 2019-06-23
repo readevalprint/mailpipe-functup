@@ -2,20 +2,26 @@
 
 {% block content %}
 
-  <dl class="dl-horizontal">
-    <dt>Address</dt>
-    <dd>{{address}}</dd>
-    <dt>Callback URL</dt>
-    <dd><code>{{callback_url | default:"None"}}</code></dd>
-    <dt>Inbox Size</dt>
-    <dd>{{ messege_length_sum|filesizeformat }}</dd>
+  <h2>Plans</h2>
 
-    <dt>Mesages</dt>
-    <dd>
-    <a href="{{ messages }}" >{{ message_count }} Message{{ message_count|pluralize }}</a>
-    </dd>
-  </dl>
 
+  {% if profile.current_plan %}
+  Current plan: {{ profile.current_plan }}
+  {% else %}
+  Current plan: Demo account
+  {% endif %}
+
+  <ul class="nav nav-tabs">
+    {% for slug, plan in plans.items %}
+      <li><a href="/plans/{{ slug }}"> {{ plan.name }}</a></li>
+    {% endfor %}
+  </ul>
+
+  
+
+  {% for name, plan in plans.items %}
+    {{ name }}, {{ plan }}
+  {% endfor %}
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert">
       {% for error in form.non_field_errors %}
@@ -32,7 +38,6 @@
     </div>
   {% endif %}
 
-
   <form id="" action='' method=POST>
     {% for field in form %}
       <div class="fieldWrapper">
@@ -46,9 +51,4 @@
     <button class="btn" id='submit'>Update</button>
   </form>
 
-  <form id="" action='' method="POST">
-    <input type="submit" value="Delete" class="btn btn-danger">
-    <input type="hidden" name="delete" value="1">
-    {% csrf_token %}
-  </form>
 {% endblock content %}

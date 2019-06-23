@@ -23,7 +23,6 @@
         /* Custom container */
 
         .home .container {
-          width: auto;
         }
         .home .masthead h1 {
           display: none;
@@ -44,6 +43,9 @@
         label[for=id_json] {
           display: none;
         }
+        tr.clickableRow { cursor: pointer; }
+
+
       </style>
       <script src="{% static "rest_framework/js/jquery-3.3.1.min.js" %}"></script>
       <script src="{% static "js/bootstrap.js" %}"></script>
@@ -61,25 +63,37 @@
         <div class="masthead">
           <ul class="nav nav-pills pull-right">
             {% if user.is_authenticated %}
-              <li> <a href="{% url 'email-list' %}">All Emails</a></li>
-              <li> <a href="{% url 'email-account-list' %}">All Accounts</a></li>
-              {% if user.is_lazy_user_fix_me %}
-                <li><a href="{% url "demo" %}">Demo</a></li>
-                <li><a href="/auth/logout/?next=/auth/signup/">Sign up</a></li>
-              {% else %}
-                <li><a href="{% url 'profile_update' %}">{{ user }} </a></li>
-              {% endif %}
-              <li><a href="/auth/logout/?next=/">Log out</a></li>
+              <li>
+              <a href="/welcome/">Welcome</a>
+              </li>
+              <li>
+              <a href="/">Inboxes</a>
+              </li>
+              <li>
+              <a href="/topup/">Balance {{ balance|floatformat:8 }} BTC</a>
+              </li>
+              <li>
+              <a href="/plans/">Plan</a>
+              </li>
+              <li>
+              <a href="/transactions/">Transactions</a>
+              </li>
+              <li>
+              <form action='/_logout' method="POST">
+                <button class='btn btn-link' type="submit">Logout</button>
+                {% csrf_token %}
+              </form>
+              </li>
             {% else %}
-              <li><a href="/auth/login/">Log in</a></li>
-              <li><a href="/auth/signup/">Sign up</a></li>
+              <li><a href="/_login">Log in</a></li>
             {% endif %}
           </ul>
-          <h1><a class="header" class="" href="/"> MailPipe</a></h1>
+          <h1><a class="header" class="" href="/"> Mailpipe</a></h1>
           <small class="muted">A simple API for incoming email.</small>
           <hr>
         </div>
       {% endblock %}
+
 
       {% block content %}
         {{ content }}
@@ -88,12 +102,30 @@
     <script src="{% static "mailpipe_io/js/bootstrap-ajax.js" %}"></script>
     <script src="{% static "rest_framework/js/prettify-min.js" %}"></script>
     <script src="{% static "rest_framework/js/default.js" %}"></script>
+
     <script>
       $(function(){
         var activeurl = window.location.pathname;
         $('a[href="'+activeurl+'"]').parent('li').addClass('active');
       })
     </script>
+    <script>
+      function getCookie(name) {
+        var cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+          var cookies = document.cookie.split(';');
+          for (var i = 0; i < cookies.length; i++) {
+            var cookie = cookies[i].trim();
+            // Does this cookie string begin with the name we want?
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+              cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+              break;
+            }
+          }
+        }
+        return cookieValue;
+      }
+    </script>
 
   </body>
-  <html>
+</html>

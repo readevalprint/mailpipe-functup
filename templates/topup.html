@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 
+{% load static %}
+
+{% block head %}
+  {{ block.super }}
+  <script src ="https://payme.functup.com/modal/btcpay.js"></script>
+{% endblock%}
+
 {% block content %}
+  {{ block.super }}
+  {% if detail %}
+    <div class="alert alert-info">
+      {{ detail }}
+    </div>
+  {% endif %}
 
-  <dl class="dl-horizontal">
-    <dt>Address</dt>
-    <dd>{{address}}</dd>
-    <dt>Callback URL</dt>
-    <dd><code>{{callback_url | default:"None"}}</code></dd>
-    <dt>Inbox Size</dt>
-    <dd>{{ messege_length_sum|filesizeformat }}</dd>
-
-    <dt>Mesages</dt>
-    <dd>
-    <a href="{{ messages }}" >{{ message_count }} Message{{ message_count|pluralize }}</a>
-    </dd>
-  </dl>
 
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert">
@@ -38,17 +38,21 @@
       <div class="fieldWrapper">
         {{ field }}
         {% if field.help_text %}
-          <p class="help">{{ field.help_text|safe }}</p>
+          <p class="help">{{ field.help_text }}</p>
         {% endif %}
       </div>
     {% endfor %}
     {% csrf_token %}
-    <button class="btn" id='submit'>Update</button>
+    <button class="btn" id='submit'>Create</button>
   </form>
 
-  <form id="" action='' method="POST">
-    <input type="submit" value="Delete" class="btn btn-danger">
-    <input type="hidden" name="delete" value="1">
-    {% csrf_token %}
-  </form>
+
+  {% for invoice in new_invoices %}
+    {% if forloop.first %}
+      <script>
+        window.btcpay.showInvoice("{{invoice.data.invoice.id}}");
+      </script>
+    {% endif %}
+  {% endfor %}
+
 {% endblock content %}
