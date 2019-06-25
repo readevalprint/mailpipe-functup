@@ -34,8 +34,9 @@ def upload_static():
             if r.status_code == 500:
                 print("ERROR:", r.content.decode())
 
+
 def upload_code():
-    path = 'main.snek'
+    path = "main.snek"
     print(path)
     with open(path, "rb") as f:
         r = requests.patch(
@@ -45,16 +46,23 @@ def upload_code():
             data={"code": f.read()},
         )
         if r.status_code not in [200, 201]:
-            print('\n'.join(r.json()['code']))
+            if 'code' in r.json():
+                print('\n'.join(r.json()['code']))
+            else:
+                print(r.content)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import argparse
     import urllib3
+
     urllib3.disable_warnings()
-    parser = argparse.ArgumentParser(description='Upload code, templates, or static files')
-    parser.add_argument('-c', '--code', action='store_true')
-    parser.add_argument('-t', '--templates', action='store_true')
-    parser.add_argument('-s', '--static', action='store_true')
+    parser = argparse.ArgumentParser(
+        description="Upload code, templates, or static files"
+    )
+    parser.add_argument("-c", "--code", action="store_true")
+    parser.add_argument("-t", "--templates", action="store_true")
+    parser.add_argument("-s", "--static", action="store_true")
     args = parser.parse_args()
 
     if args.code:

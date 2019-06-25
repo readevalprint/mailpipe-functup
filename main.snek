@@ -102,7 +102,9 @@ def get_or_create_profile(user_id):
         if profile_res.status_code != 201:
             raise Exception(profile_res.json())
     profile = profile_res.json()
-    TEMPLATE_CONTEXT["balance"] = Decimal(profile["data"].get("balance", 0)) / BTC
+    TEMPLATE_CONTEXT["balance"] = round(
+        Decimal(profile["data"].get("balance", 0)) / BTC, 8
+    )
     TEMPLATE_CONTEXT["profile"] = profile
     return profile
 
@@ -193,12 +195,14 @@ def account_info(request, current_usage, profile, errors):
 def topup_view(request):
     user_id = request.user.id
     if not user_id:
-        return Response(status=302, headers={"Location": "/"})
+        return Response(
+            {"content": "Unauthorized"}, status=401, template_name="base.html"
+        )
     profile = get_or_create_profile(user_id)
     errors = {}
 
     schema = {
-        "title": "Top up account credit",
+        "title": "Top up account",
         "type": "object",
         "properties": {
             "amount": {
@@ -213,9 +217,29 @@ def topup_view(request):
     if request.method == "OPTIONS":
         return Response({"schema": schema}, template_name="rest_framework_base.html")
     TEMPLATE_CONTEXT["schema"] = schema
+    request_data = {}
+    if isinstance(request.data, dict):
+        request_data = request.data
+    initial = None
+    if "amount" in request.query_params:
+        initial = {
+            "json": json.dumps({"amount": float(request.query_params.get("amount"))})
+        }
+    print(initial)
     form = JSONSchemaForm(
-        data=request.data or None, schema=schema, options=schema_options, ajax=False
+        initial=initial,
+        data=request.data and {"json": request_data.get("json", request_data)} or None,
+        schema=schema,
+        options=schema_options,
+        ajax=False,
     )
+    # form = JSONSchemaForm(
+    #    initial={"json": json.dumps({"amount": request.query_params.get("amount")})},
+    #    data=request.data or None,
+    #    schema=schema,
+    #    options=schema_options,
+    #    ajax=False,
+    # )
 
     TEMPLATE_CONTEXT["form"] = form
 
@@ -251,7 +275,7 @@ def topup_view(request):
                 "addresses": invoice["addresses"],
             }
             if request.accepted_renderer.format == "html":
-                return Response(status=302, headers={"Location": invoice["url"]})
+                return Response(status=303, headers={"Location": invoice["url"]})
             # r = client.patch(profile["url"], data={"data": profile["data"]})
             # if r.status_code == 200:
 
@@ -282,8 +306,6 @@ def update_invoice_view(request):
     invoice_id = request.data.get("id", None) or request.query_params.get(
         "invoice_id", "1111"
     )
-    print("updating invoice")
-    print(invoice_id)
     return Response(update_invoice(invoice_id))
 
 
@@ -303,7 +325,6 @@ def update_invoice(invoice_id):
             transaction["data"]["invoice"] = invoice
             transaction["data"]["amount_sats"] = int(Decimal(invoice["btcPaid"]) * BTC)
             r = client.patch(transaction["url"], data=transaction)
-            print(r.status_code)
             data = invoice
 
     except Exception as e:
@@ -316,14 +337,16 @@ STATIC_URL = "/static/"
 
 
 def welcome_view(request):
-    TEMPLATE_CONTEXT["plans"] = PLANS
-    return Response({}, template_name="index.html")
+    DOCS["name"] = "Welcome"
+    DOCS["description"] = "Welcome to Mailpipe"
+    data = {"welcome": "This is the API version of the welcome page", "plans": PLANS}
+    return Response(data, template_name="index.html")
 
 
 def email_list_view(request):
     user_id = request.user.id
     if not user_id:
-        return Response(status=302, headers={"Location": "/welcome/"})
+        return Response(status=307, headers={"Location": "/welcome/"})
     # should only be one but you never know
     profile = get_or_create_profile(user_id)
     errors = {}
@@ -365,7 +388,11 @@ def email_list_view(request):
         return Response({"schema": schema}, template_name="rest_framework_base.html")
 
     form = JSONSchemaForm(
-        data=request.data or None, schema=schema, options=schema_options, ajax=False
+        initial=request.data,
+        data=request.data or None,
+        schema=schema,
+        options=schema_options,
+        ajax=False,
     )
 
     TEMPLATE_CONTEXT["form"] = form
@@ -388,7 +415,7 @@ def email_list_view(request):
                 )
                 if r.status_code == 201:
                     email_data = email_adapter(request, r.json())
-                    return Response(status=302, headers={"Location": request.path})
+                    return Response(status=303, headers={"Location": request.path})
                 else:
                     for k, v in r.json().items():
                         if k in form.fields:
@@ -406,22 +433,6 @@ def email_list_view(request):
             data = form.errors.get_json_data()
 
     return Response(data, template_name="email_list.html")
-
-
-def delete(request, email):
-    if not request.user.id:
-        return Response(
-            base(
-                request=request,
-                title="Login",
-                body="hi there stranger, why don't you log in?",
-            )
-        )
-
-    if request.method == "POST":
-        if not error:
-            return Response(status=302, headers={"location": "/"})
-        return Response(error, status=400)
 
 
 def attachment_detail(request, email_address, message_uuid, attachment_index, filename):
@@ -443,8 +454,6 @@ def attachment_detail(request, email_address, message_uuid, attachment_index, fi
     r = client.get(
         f"/_emails/{email_address}/msg/{message_uuid}/attachments/{attachment_index}/{filename}"
     )
-    # print(path)
-    # print(f"/_data/static/{path}?format=file")
     if r.status_code == 200:
         return Response(
             r.content,
@@ -532,13 +541,12 @@ def email_detail_view(request, email_address):
     user_id = request.user.id
     if not user_id:
         return Response(
-            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
+            {"content": "Unauthorized"}, status=401, template_name="base.html"
         )
 
     url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
         {"address": email_address}, safe="@"
     )
-    print(url)
     j = client.get(url).json()
     if j["count"] == 1:
         internal_data = j["results"][0]
@@ -664,7 +672,6 @@ def user_email_detail(request, user_id, email_address):
     url = rf"/_emails/?user_id={user_id}&" + parse.urlencode(
         {"address": email_address}, safe="@"
     )
-    print(url)
     j = client.get(url).json()
     if j["count"] == 1:
         return j["results"][0], email_adapter(request, j["results"][0])
@@ -770,8 +777,6 @@ def bill_user(profile):
 
 def static(request, path):
     r = client.get(f"/_data/static/{path}?format=file")
-    # print(path)
-    # print(f"/_data/static/{path}?format=file")
     if r.status_code == 200:
         return Response(
             r.content,
@@ -791,11 +796,13 @@ def transaction_adaptor(request, t):
         "created": t["created"],
         "updated": t["updated"],
         "amount": Decimal(t["data"].get("amount_sats", 0)) / BTC,
+        "uuid": t["path"].split("/")[-1],
     }
     if "plan" in t["data"]:
+        duration = list(t["data"]["plan"]["duration"].items())[0]
         d[
             "info"
-        ] = f"Purchase  {t['data']['plan']['features']['max_inboxes'] } inboxes for { ' '.join(t['data']['plan']['duration'].items()) } "
+        ] = f"Purchase  {t['data']['plan']['features']['max_inboxes'] } inbox(es) for { duration[1] } {duration[0]} "
 
     if "invoice" in t["data"]:
         d["info"] = "Balance topup"
@@ -810,11 +817,18 @@ def transaction_adaptor(request, t):
     return d
 
 
+DOCS = {"name": "Mailpipe", "description": "A simple API for incoming email"}
+
+
+def api_docs():
+    return DOCS
+
+
 def transaction_view(request):
     user_id = request.user.id
     if not user_id:
         return Response(
-            f"""<html><a href="/_login?next={ request.path }"> Log in required.</a>"""
+            {"content": "Unauthorized"}, status=401, template_name="base.html"
         )
     profile = get_or_create_profile(user_id)
     page = request.query_params.get("page", None)
@@ -845,50 +859,76 @@ def transaction_view(request):
 
 
 def plan_view(request, selected_plan):
-    if not selected_plan or (selected_plan not in PLANS):
+    if selected_plan not in PLANS:
         for k, p in PLANS.items():
             if p.get("recommended"):
                 return Response(status=302, headers={"Location": f"/plans/{k}/"})
+        return Response(status=302, headers={"Location": f"/plans/{k}/"})
 
     user_id = request.user.id
     if not user_id:
-        return Response(
-            status=302, headers={"Location": f"/_login?lazy&next={request.path}"}
-        )
+        if request.accepted_renderer.format == "html":
+            return Response(
+                status=302, headers={"Location": f"/_login?lazy&next={request.path}"}
+            )
+        else:
+            return Response(
+                {"content": "Unauthorized"}, status=401, template_name="base.html"
+            )
+    data = {}
     profile = get_or_create_profile(user_id)
-    schema = {"type": "string", "enum": list(PLANS.keys())}
+    schema = {
+        "type": "object",
+        "properties": {"plan": {"type": "string", "enum": list(PLANS.keys())}},
+        "required": ["plan"],
+    }
     TEMPLATE_CONTEXT["schema"] = schema
     TEMPLATE_CONTEXT["plans"] = PLANS
+    present = arrow.utcnow()
 
     if request.method == "OPTIONS":
         return Response({"schema": schema}, template_name="rest_framework_base.html")
 
-    data = {}
+    rebate_amount = 0
+    current_plan = profile["data"].get("current_plan", None)
+    if current_plan:
+        current_start = arrow.get(current_plan["start"])
+        current_end = arrow.get(current_plan["end"])
+        rebate_amount = Decimal(
+            current_plan["price"]["sats"]
+            * ((current_end - present) / (current_end - current_start))
+        )
+    topup_needed = -min(
+        0,
+        Decimal(
+            (Decimal(rebate_amount) + Decimal(profile["data"].get("balance", 0)))
+            - PLANS[selected_plan]["price"]["sats"]
+        ),
+    )
+    data["topup_needed"] = round(topup_needed / BTC, 8)
+    data["rebate_amount"] = round(rebate_amount / BTC, 8)
+    data["selected_plan"] = selected_plan
+    data["plan"] = PLANS[selected_plan]
+
+    request_data = {}
+    if isinstance(request.data, dict):
+        request_data = request.data
+
     form = JSONSchemaForm(
-        data=request.data or None, schema=schema, options=schema_options, ajax=False
+        data=request.data and {"json": request_data.get("json", request_data)} or None,
+        schema=schema,
+        options=schema_options,
+        ajax=False,
     )
 
     TEMPLATE_CONTEXT["form"] = form
 
     if request.method == "POST":
         if form.is_valid():
-            print("valid")
-            present = arrow.utcnow()
-            current_plan = profile["data"].get("current_plan", None)
-            rebate_amount = 0
-            if current_plan:
-                current_start = arrow.get(current_plan["start"])
-                current_end = arrow.get(current_plan["end"])
-                rebate_amount = current_plan["price"]["sats"] * (
-                    (current_end - present) / (current_end - current_start)
-                )
-            new_plan = PLANS[form.cleaned_data["json"]]
-            if (
-                rebate_amount + profile["data"].get("balance", 0)
-                >= new_plan["price"]["sats"]
-            ):
-                print("adding plan")
-                print(new_plan)
+            new_plan = PLANS[form.cleaned_data["json"]["plan"]]
+            if rebate_amount + Decimal(profile["data"].get("balance", 0)) >= new_plan[
+                "price"
+            ]["sats"] * Decimal("0.9"):
                 new_plan["start"] = present.isoformat()
                 new_plan["end"] = present.shift(**new_plan["duration"]).isoformat()
                 profile["data"]["current_plan"] = new_plan
@@ -922,12 +962,9 @@ def plan_view(request, selected_plan):
             else:
                 form.add_error(None, "insufficient balance")
 
-    if request.accepted_renderer.format == "json":
-        if form.errors:
-            data = form.errors.get_json_data()
         else:
-            data = invoice
-    return Response(data, template_name="plans.html")
+            data = form.errors.get_json_data()
+    return Response(data=data, template_name="plans.html")
 
 
 urls = [
@@ -952,13 +989,40 @@ urls = [
 
 
 def handle(request):
+    # if request.data and not isinstance(request.data, dict):
+    #    return Response("Bad request", status=400, template_name="base.html")
     if request.domain != settings["DOMAIN"]:
-        return Response({"content": "not found"}, status=404, template_name="base.html")
+        return Response(
+            status=302, headers={"location": "https://" + settings["domain"]}
+        )
 
     for path_re, view in urls:
         m = re2.match(path_re, request.path)
         if m:
-            return view(request, **m.groupdict())
+            response = view(request, **m.groupdict())
+            # add format=api if this is an internal redirect an dthe original request had it
+            if response.status_code in [303, 307, 308]:
+                location = parse.urlsplit(response.get("location", ""))
+                if not location.netloc:
+                    if "format" in request.query_params:
+                        location_qs = parse.parse_qs(location.query)
+                        if "format" not in location_qs:
+                            location_qs["format"] = request.query_params["format"]
+                            new_location_query = parse.urlencode(
+                                location_qs, doseq=True
+                            )
+
+                            response["location"] = parse.urlunsplit(
+                                (
+                                    location.scheme,
+                                    location.netloc,
+                                    location.path,
+                                    new_location_query,
+                                    location.fragment,
+                                )
+                            )
+
+            return response
 
     for path_re, view in urls:
         m = re2.match(path_re, request.path + "/")
@@ -967,7 +1031,7 @@ def handle(request):
             if request.query_params:
                 location = location + "?" + parse.urlencode(request.query_params)
 
-            return Response(status=302, headers={"location": location})
+            return Response(status=308, headers={"Location": location})
     return Response({"content": "not found"}, status=404, template_name="base.html")
 
 

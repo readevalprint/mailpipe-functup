@@ -4,9 +4,8 @@
 
   <h2>Plans</h2>
 
-
-  {% if profile.current_plan %}
-    Current plan: {{ profile.current_plan }}
+  {% if profile.data.current_plan %}
+    Current plan: {{ profile.data.current_plan }}
   {% else %}
     Current plan: Demo account
   {% endif %}
@@ -21,10 +20,47 @@
   </ul>
 
 
+  <div class="card mb-4 box-shadow">
+    <div class="card-header">
+      <h4 class="my-0 font-weight-normal"> {{ plan.name }} </h4>
+    </div>
+    <div class="card-body">
+      <h1 class="card-title pricing-card-title"> {{ plan.price.BTC }} BTC </h1>
+      <h3>Billing cycle: {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
+      <h4>Features:</h4>
+      <ul class=" mt-3 mb-4">
+        <li>API access</li>
+        {% if plan.features.max_inboxes == 'UNLIMITED' %}
+          <li><strong>UNLIMITED</strong> inboxes!</li>
+        {% else %}
+          <li>Up to <strong>{{ plan.features.max_inboxes }}</strong> inboxes</li>
+        {% endif %}
+        <li>Email support</li>
+        {% if  plan.features.callback %}
+          <li> Provide callback URL for server notifications</li>
+        {% endif %}
+        {% if  plan.features.custom_mx %}
+          <li>Custom domain</li>
+        {% endif %}
+      </ul>
+    </div>
+  </div>
 
-  {% for name, plan in plans.items %}
-    {{ name }}, {{ plan }}
-  {% endfor %}
+
+  {% if topup_needed %}
+    <div class="alert alert-info" role="alert">
+      Hey it looks like your balance of {{ balance }} BTC 
+      {% if rebate_amount %}
+        , combined with the {{ rebate_amount }} BTC from the prorated rebate from your current plan,
+      {% endif %}
+      is not enough to choose this new plan.
+      <a  class="alert-link" href="/topup/?amount={{ topup_needed }}">Top up your account with {{ topup_needed }} BTC</a> to be able to choose this plan.
+    </div>
+
+  {% endif %}
+
+  <form id="" action='' method=POST>
+  </form>
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert">
       {% for error in form.non_field_errors %}
@@ -42,16 +78,13 @@
   {% endif %}
 
   <form id="" action='' method=POST>
-    {% for field in form %}
-      <div class="fieldWrapper">
-        {{ field }}
-        {% if field.help_text %}
-          <p class="help">{{ field.help_text|safe }}</p>
-        {% endif %}
-      </div>
-    {% endfor %}
     {% csrf_token %}
-    <button class="btn" id='submit'>Update</button>
+
+
+    <input type="hidden" value='{{ selected_plan }}' name="plan">
+
+
+    <button class="btn btn-primary" id='submit'>Choose Plan</button>
   </form>
 
 {% endblock content %}

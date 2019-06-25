@@ -108,7 +108,7 @@
               <a class="nav-link" href="/">Inboxes</a>
               </li>
               <li class="nav-item">
-              <a class="nav-link" href="/topup/">Balance {{ balance|floatformat:8 }} BTC</a>
+              <a class="nav-link" href="/topup/">Balance {{ balance }} BTC</a>
               </li>
               <li class="nav-item">
               <a  class="nav-link" href="/plans/">Plan</a>
@@ -133,7 +133,43 @@
       {% block content %}
         {{ content }}
       {% endblock %}
+    
+  <footer class="pt-4 my-md-5 pt-md-5 border-top">
+    <div class="row">
+      <div class="col-6 col-md">
+        <h5>Features</h5>
+        <ul class="list-unstyled text-small">
+          <li>Every URL is its own API</li>
+          <li>Built in documentation</li>
+          <li>Dog are cool</li>
+        </ul>
+      </div>
+      <div class="col-6 col-md">
+        <h5>Resources</h5>
+        <ul class="list-unstyled text-small">
+          <li><a class="text-muted" href="?format=api">Documentation</a></li>
+          <li><a class="text-muted" href="?format=json">REST API</a></li>
+        </ul>
+      </div>
+      <div class="col-6 col-md">
+        <h5>About</h5>
+        <ul class="list-unstyled text-small">
+          <li>Follow <a class="text-muted" href="https://twitter.com/mailpipe">@Mailpipe</a> on twitter</li>
+          <li>Runs on Python 3 🐍</li>
+          <li>Hosted on <a class="text-muted" href="https://functup.com">Functup</a></li>
+        </ul>
+      </div>
+      <div class="col-12 col-md-2">
+        <img class="mb-2" src="/static/flow.png" alt="" width="100%" height="auto">
+        <small class="d-block mb-3 text-muted">&copy; 2013-2019</small>
+      </div>
     </div>
+  </footer>
+    
+    </div>
+
+
+
 
     <script>
       $(function(){

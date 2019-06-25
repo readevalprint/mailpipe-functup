@@ -15,9 +15,10 @@
       <a class="btn" href="{{ next }}">Next Page</a>
     {% endif %}
   </div>
-  <table class="table table-hover">
+  <table class="table table-hover table-sm">
     <thead>
       <tr>
+        <th>id</th>
         <th>amount</th>
         <th></th>
         <th>info</th>
@@ -27,6 +28,7 @@
     <tbody>
       {% for r in results %}
         <tr>
+          <td>{{ r.uuid }}</td>
           <td>
             {{ r.amount | floatformat:8}}  BTC
           </td>
