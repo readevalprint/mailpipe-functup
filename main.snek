@@ -371,6 +371,7 @@ def email_list_view(request):
                 "title": "Inbox email address",
                 "description": "Email address you want to receive email to",
                 "format": "email",
+                "minLength": 1,
             },
             "callback_url": {
                 "type": "string",
@@ -382,6 +383,7 @@ def email_list_view(request):
                 "pattern": "^(https|http)://.*|",
             },
         },
+        "required": ["address"],
     }
     TEMPLATE_CONTEXT["schema"] = schema
     if request.method == "OPTIONS":
