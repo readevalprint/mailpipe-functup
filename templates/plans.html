@@ -37,7 +37,7 @@
         {% endif %}
         <li>Email support</li>
         {% if  plan.features.callback %}
-          <li> Provide callback URL for server notifications</li>
+          <li>Callback URL for server notifications</li>
         {% endif %}
         {% if  plan.features.custom_mx %}
           <li>Custom domain</li>
@@ -87,4 +87,10 @@
     <button class="btn btn-primary" id='submit'>Choose Plan</button>
   </form>
 
+    <script>
+      $(function(){
+        var activeurl = window.location.pathname;
+        $('a[href="/plans/"]').addClass('active');
+      })
+    </script>
 {% endblock content %}

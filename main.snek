@@ -26,7 +26,7 @@ import os
 
 UNLIMITED = "UNLIMITED"
 FEATURES = {
-    "personal": {"max_inboxes": 10},
+    "personal": {"max_inboxes": 10, "callback": True},
     "pro": {"max_inboxes": 100, "callback": True},
     "enterprise": {"max_inboxes": UNLIMITED, "custom_mx": True, "callback": True},
 }
@@ -100,7 +100,7 @@ def get_or_create_profile(user_id):
         data = {"user_id": user_id, "current_plan": None, "next_plan": None}
         profile_res = client.put(f"/_data/{path}", data={"data": data, "path": path})
         if profile_res.status_code != 201:
-            raise Exception(profile_res.json())
+            1 / 0
     profile = profile_res.json()
     TEMPLATE_CONTEXT["balance"] = round(
         Decimal(profile["data"].get("balance", 0)) / BTC, 8
@@ -194,10 +194,11 @@ def account_info(request, current_usage, profile, errors):
 
 def topup_view(request):
     user_id = request.user.id
-    if not user_id:
+    if not user_id or request.user.is_lazy:
         return Response(
-            {"content": "Unauthorized"}, status=401, template_name="base.html"
+            {"content": "Unauthorized"}, status=401, template_name="401.html"
         )
+
     profile = get_or_create_profile(user_id)
     errors = {}
 
@@ -207,8 +208,7 @@ def topup_view(request):
         "properties": {
             "amount": {
                 "type": "number",
-                "title": "Amount",
-                "description": "Amount to generate a new invoice for",
+                "title": "BTC",
                 "minimum": 0.00001,
                 "maximum": 0.1,
             }
@@ -344,6 +344,8 @@ def welcome_view(request):
 
 
 def email_list_view(request):
+    DOCS["name"] = "Inbox"
+    DOCS["description"] = "Make an OPTIONS request to see the required schema."
     user_id = request.user.id
     if not user_id:
         return Response(status=307, headers={"Location": "/welcome/"})
@@ -369,7 +371,7 @@ def email_list_view(request):
             "address": {
                 "type": "string",
                 "title": "Inbox email address",
-                "description": "Email address you want to receive email to",
+                "description": "Email address you want to receive email.",
                 "format": "email",
                 "minLength": 1,
             },
@@ -383,30 +385,38 @@ def email_list_view(request):
                 "pattern": "^(https|http)://.*|",
             },
         },
-        "required": ["address"],
+        "required": ["address", "callback_url"],
     }
     TEMPLATE_CONTEXT["schema"] = schema
     if request.method == "OPTIONS":
         return Response({"schema": schema}, template_name="rest_framework_base.html")
 
+    request_data = None
+    if request.method == "POST":
+        request_data = {}
+        if isinstance(request.data, dict):
+            request_data = {"json": request.data.get("json", request.data or {"a": 1})}
+        else:
+            request_data = {"json": request.data}
+    print(request_data)
     form = JSONSchemaForm(
-        initial=request.data,
-        data=request.data or None,
+        initial=request.data
+        or {"json": json.dumps({"address": "@" + settings["DOMAIN"]})},
+        data=request_data,
         schema=schema,
         options=schema_options,
         ajax=False,
     )
-
     TEMPLATE_CONTEXT["form"] = form
     if request.method == "POST":
-        if (
-            data["count"]
-            < (
-                profile["data"].get("current_plan", None)
-                or {"features": {"max_inboxes": 1}}
-            )["features"]["max_inboxes"]
-        ):
-            if form.is_valid():
+        if form.is_valid():
+            if (
+                data["count"]
+                < (
+                    profile["data"].get("current_plan", None)
+                    or {"features": {"max_inboxes": 1}}
+                )["features"]["max_inboxes"]
+            ):
                 r = client.post(
                     "/_emails/",
                     data={
@@ -424,17 +434,19 @@ def email_list_view(request):
                             form.add_error(k, v)
                         else:
                             form.add_error(None, v)
-        else:
-            form.add_error(
-                None,
-                "You have used all your avalible inboxes. Please upgrade your plan or delete an existing inbox.",
-            )
+            else:
+                form.add_error(
+                    None,
+                    "You have used all your avalible inboxes. Please upgrade your plan or delete an existing inbox.",
+                )
 
-    if request.accepted_renderer.format == "json":
+    if request.accepted_renderer.format in ["json", "api"]:
         if form.errors:
             data = form.errors.get_json_data()
-
-    return Response(data, template_name="email_list.html")
+    status = 200
+    if form.errors:
+        status = 400
+    return Response(data, status=status, template_name="email_list.html")
 
 
 def attachment_detail(request, email_address, message_uuid, attachment_index, filename):
@@ -540,6 +552,9 @@ def owns_email(user_id, email):
 
 
 def email_detail_view(request, email_address):
+    DOCS["name"] = "Inbox"
+    DOCS["description"] = ""
+
     user_id = request.user.id
     if not user_id:
         return Response(
@@ -778,7 +793,7 @@ def bill_user(profile):
 
 
 def static(request, path):
-    r = client.get(f"/_data/static/{path}?format=file")
+    r = client.get(f"/_data/static/{path}?format=file", format="file")
     if r.status_code == 200:
         return Response(
             r.content,
@@ -795,8 +810,8 @@ def static(request, path):
 
 def transaction_adaptor(request, t):
     d = {
-        "created": t["created"],
-        "updated": t["updated"],
+        "created": arrow.get(t["created"]).datetime,
+        "updated": arrow.get(t["updated"]).datetime,
         "amount": Decimal(t["data"].get("amount_sats", 0)) / BTC,
         "uuid": t["path"].split("/")[-1],
     }
@@ -871,7 +886,7 @@ def plan_view(request, selected_plan):
     if not user_id:
         if request.accepted_renderer.format == "html":
             return Response(
-                status=302, headers={"Location": f"/_login?lazy&next={request.path}"}
+                status=302, headers={"Location": f"/_login?&next={request.path}"}
             )
         else:
             return Response(
@@ -1003,7 +1018,7 @@ def handle(request):
         if m:
             response = view(request, **m.groupdict())
             # add format=api if this is an internal redirect an dthe original request had it
-            if response.status_code in [303, 307, 308]:
+            if response.status_code in [302, 303, 307, 308]:
                 location = parse.urlsplit(response.get("location", ""))
                 if not location.netloc:
                     if "format" in request.query_params:
@@ -1054,10 +1069,14 @@ def add_template_context(request):
 
 
 def add_user_context(request):
+    return {"settings": settings}
+
+
+def add_settings_context(request):
     return {"user": request.user}
 
 
-CONTEXT_PROCESSORS = [add_template_context, add_user_context]
+CONTEXT_PROCESSORS = [add_template_context, add_user_context, add_settings_context]
 
 
 def test_home():

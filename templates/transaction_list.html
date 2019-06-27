@@ -21,6 +21,7 @@
         <th>id</th>
         <th>amount</th>
         <th></th>
+        <th>status</th>
         <th>info</th>
         <th>created</th>
       </tr>
@@ -34,13 +35,12 @@
           </td>
           <td>
             {% if r.status == 'new' %}
-              {% if r.invoice_url %}
                 <button class="btn btn-success btn-small" onclick=window.btcpay.showInvoice("{{r.invoice_id}}") data-loading-text="Loading...">Show invoice</button>
                 <a href="{{ r.invoice_url }}" target="blank"> Link to invoice</a>
-              {% endif %}
-            {% else %}
-              {{ r.status }}
             {% endif %}
+          </td>
+          <td>
+              {{ r.status }}
           </td>
           <td>
             {{ r.info }}  
@@ -49,7 +49,7 @@
             {% endif %}
           </td>
           <td>
-            {{ r.created }} 
+            {{ r.created|date:"SHORT_DATE_FORMAT" }} 
           </td>
         </tr>
       {% endfor %}

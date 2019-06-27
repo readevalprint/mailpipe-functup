@@ -102,70 +102,84 @@
           <ul class="nav nav-pills justify-content-end">
             {% if user.is_authenticated %}
               <li class="nav-item">
-              <a class="nav-link" href="/welcome/">Welcome</a>
+              <a class="nav-link" href="/welcome/">Welcome 
+                {% if user.is_lazy %}
+                  Anon
+                {% else %}
+                  {{ user.username }}
+                {% endif %}
+              </a>
               </li>
               <li  class="nav-item">
               <a class="nav-link" href="/">Inboxes</a>
               </li>
-              <li class="nav-item">
-              <a class="nav-link" href="/topup/">Balance {{ balance }} BTC</a>
-              </li>
+              {% if not user.is_lazy %}
+                <li class="nav-item">
+                <a class="nav-link" href="/topup/">Top up BTC balance</a>
+                </li>
               <li class="nav-item">
               <a  class="nav-link" href="/plans/">Plan</a>
               </li>
               <li class="nav-item">
               <a class="nav-link"  href="/transactions/">Transactions</a>
               </li>
+              {% endif %}
               <li class="nav-item">
               <form action='/_logout' method="POST">
-                <button class="btn btn-link nav-link" type="submit">Logout {{ user.username }}</button>
+                <button class="btn btn-link nav-link" type="submit">Logout</button>
                 {% csrf_token %}
               </form>
               </li>
             {% else %}
-              <li class="nav-item"><a  class="nav-link" href="/_login">Log in</a></li>
+              <li class="nav-item"><a  class="nav-link" href="/_login">Log in via Functup</a></li>
             {% endif %}
           </ul>
         </div>
       {% endblock %}
+      {% if user.is_lazy %}
+        <div class="alert alert-warning sticky-top position-sticky">
 
+          Thanks for trying out Mailpipe, remember to
+          <a href="https://{{ settings.FUNCTUP_HOST }}/convert/?next=https://{{ settings.DOMAIN }}/_login">set a username and password on Functup</a>
+        </div>
+      {% endif %}
 
       {% block content %}
         {{ content }}
       {% endblock %}
-    
-  <footer class="pt-4 my-md-5 pt-md-5 border-top">
-    <div class="row">
-      <div class="col-6 col-md">
-        <h5>Features</h5>
-        <ul class="list-unstyled text-small">
-          <li>Every URL is its own API</li>
-          <li>Built in documentation</li>
-          <li>Dog are cool</li>
-        </ul>
-      </div>
-      <div class="col-6 col-md">
-        <h5>Resources</h5>
-        <ul class="list-unstyled text-small">
-          <li><a class="text-muted" href="?format=api">Documentation</a></li>
-          <li><a class="text-muted" href="?format=json">REST API</a></li>
-        </ul>
-      </div>
-      <div class="col-6 col-md">
-        <h5>About</h5>
-        <ul class="list-unstyled text-small">
-          <li>Follow <a class="text-muted" href="https://twitter.com/mailpipe">@Mailpipe</a> on twitter</li>
-          <li>Runs on Python 3 🐍</li>
-          <li>Hosted on <a class="text-muted" href="https://functup.com">Functup</a></li>
-        </ul>
-      </div>
-      <div class="col-12 col-md-2">
-        <img class="mb-2" src="/static/flow.png" alt="" width="100%" height="auto">
-        <small class="d-block mb-3 text-muted">&copy; 2013-2019</small>
-      </div>
-    </div>
-  </footer>
-    
+
+      <footer class="pt-4 my-md-5 pt-md-5 border-top">
+        <div class="row">
+          <div class="col-6 col-md">
+            <h5>Features</h5>
+            <ul class="list-unstyled text-small">
+              <li>Every URL is its own API</li>
+              <li>Built in documentation</li>
+              <li>Dog are cool</li>
+            </ul>
+          </div>
+          <div class="col-6 col-md">
+            <h5>Resources</h5>
+            <ul class="list-unstyled text-small">
+              <li><a class="" href="?format=api">Documentation</a></li>
+              <li><a class="" href="?format=json">REST API</a></li>
+            </ul>
+          </div>
+          <div class="col-6 col-md">
+            <h5>About</h5>
+            <ul class="list-unstyled text-small">
+              <li>Follow <a class="" href="https://twitter.com/mailpipe">@Mailpipe</a> on twitter</li>
+              <li>Runs on Python 3 🐍</li>
+              <li>Hosted on <a target="blank" href="https://{{ settings.FUNCTUP_HOST }}">Functup</a></li>
+            </ul>
+          </div>
+          <div class="col-2">
+            <img class="mb-2" src="/static/flow.png" alt="" width="100%" height="auto">
+            <small class="d-block mb-3 ">&copy; 2013-2019</small>
+          </div>
+        </div>
+      </footer>
+
     </div>
 
 

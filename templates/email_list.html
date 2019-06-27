@@ -43,7 +43,7 @@
       </div>
     {% endfor %}
     {% csrf_token %}
-    <button class="btn btn-primary" id='submit'>Create</button>
+    <button class="m-4 btn btn-primary btn-lg" id='submit'>Create Inbox</button>
   </form>
 
 
@@ -52,15 +52,17 @@
       <tr>
         <th>Address</th>
         <th>Callback URL</th>
-        <th>Inbox Size</th>
+        <th>Inbox size</th>
         <th>Messages</th>
+        <th></th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for r in results %}
-        <tr onclick="window.location='{{ r.messages }}';" class="clickableRow">
+        <tr>
           <td>
-            <a href="{{ r.url }}">{{ r.address }} </a>
+            <a target="bank" href="mailto:{{ r.address }}">{{ r.address }}</a>
           </td>
           <td>
             {{ r.callback_url | default:"None" }} 
@@ -69,7 +71,17 @@
             {{ r.messege_length_sum |filesizeformat }}
           </td>
           <td>
-            <a href="{{ r.messages }}" >{{ r.message_count }} Message{{ r.message_count|pluralize }}</a>
+            <a href="{{ r.messages }}" class="btn btn-secondary btn-sm" > Message{{ r.message_count|pluralize }} <span class="badge badge-light">{{ r.message_count }}</span></a>
+          </td>
+          <td>
+            <a href="{{ r.url }}" class="btn btn-outline-secondary btn-sm" >Edit</a>
+          </td>
+          <td>
+            <form id="" action="{{ r.url }}" method="POST">
+              <input type="submit" value="Delete" class="btn btn-outline-danger btn-sm">
+              <input type="hidden" name="delete" value="1">
+              {% csrf_token %}
+            </form>
           </td>
         </tr>
       {% endfor %}

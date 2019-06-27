@@ -47,12 +47,25 @@
           </div>
         {% endfor %}
         {% csrf_token %}
-        <button class="btn btn-success mt-4 btn-lg" id='submit'>Create invoice</button>
+        <button class="btn 
+          {% if new_invoices %}
+            btn btn-outline-secondary
+          {% else %}
+            btn-success
+          {% endif %}
+          mt-4 btn-lg" id='submit'>Pay now</button>
       </form>
+    </div>
+  </div>
 
+  <div class="pt-5 row justify-content-md-center">
+    <div class="col-6">
 
       {% for invoice in new_invoices %}
         {% if forloop.first %}
+          <h3>Current invoice</h3>
+          <button class="btn btn-success btn-small" onclick=window.btcpay.showInvoice("{{invoice.data.invoice.id}}") data-loading-text="Loading...">Show invoice</button>
+          <a href="{{ invoice.data.invoice.url }}" target="blank"> Link to invoice</a>
           <script>
             window.btcpay.showInvoice("{{invoice.data.invoice.id}}");
           </script>
