@@ -194,7 +194,7 @@ def account_info(request, current_usage, profile, errors):
 
 def topup_view(request):
     user_id = request.user.id
-    if not user_id or request.user.is_lazy:
+    if not user_id:
         return Response(
             {"content": "Unauthorized"}, status=401, template_name="401.html"
         )
@@ -256,9 +256,9 @@ def topup_view(request):
                 {
                     "price": amount,
                     "currency": "BTC",
-                    "redirectURL": "https://" + settings["DOMAIN"],
+                    "redirectURL": "https://" + os.environ["HOST"],
                     "itemDescription": "top up",
-                    "notificationURL": rf"https://{settings['DOMAIN']}/update_invoice/",
+                    "notificationURL": rf"https://{os.environ['HOST']}/update_invoice/",
                 }
             )
             client.post(
@@ -345,7 +345,7 @@ def welcome_view(request):
 
 def email_list_view(request):
     DOCS["name"] = "Inbox"
-    DOCS["description"] = "Make an OPTIONS request to see the required schema."
+    DOCS["description"] = "Make an OPTIONS request to see the required schema. "
     user_id = request.user.id
     if not user_id:
         return Response(status=307, headers={"Location": "/welcome/"})
@@ -401,7 +401,7 @@ def email_list_view(request):
     print(request_data)
     form = JSONSchemaForm(
         initial=request.data
-        or {"json": json.dumps({"address": "@" + settings["DOMAIN"]})},
+        or {"json": json.dumps({"address": "@" + os.environ["HOST"]})},
         data=request_data,
         schema=schema,
         options=schema_options,
@@ -427,7 +427,7 @@ def email_list_view(request):
                 )
                 if r.status_code == 201:
                     email_data = email_adapter(request, r.json())
-                    return Response(status=303, headers={"Location": request.path})
+                    return Response(status=303, headers={"Location": email_data["url"]})
                 else:
                     for k, v in r.json().items():
                         if k in form.fields:
@@ -535,7 +535,7 @@ def message_detail_view(request, email_address, message_uuid):
         if not error:
             # todo just show deleted confirmation
             return Response(
-                status=302, headers={"location": fr"/{ email_address }/messages/"}
+                status=303, headers={"location": fr"/{ email_address }/messages/"}
             )
         return Response(error)
 
@@ -602,7 +602,7 @@ def email_detail_view(request, email_address):
     if "delete" in request.data or request.method == "DELETE":
         error = delete_email(email_address)
         if not error:
-            return Response(status=302, headers={"location": "/"})
+            return Response(status=303, headers={"location": "/"})
         form.add_error(None, error)
     elif request.method == "POST":
         if form.is_valid():
@@ -611,7 +611,7 @@ def email_detail_view(request, email_address):
                 data={"callback_url": form.cleaned_data["json"]["callback_url"]},
             )
             if r.status_code == 200:
-                return Response(status=302, headers={"location": email_data["url"]})
+                return Response(status=303, headers={"location": email_data["url"]})
             else:
                 for k, v in r.json().items():
                     if k in form.fields:
@@ -879,14 +879,14 @@ def plan_view(request, selected_plan):
     if selected_plan not in PLANS:
         for k, p in PLANS.items():
             if p.get("recommended"):
-                return Response(status=302, headers={"Location": f"/plans/{k}/"})
-        return Response(status=302, headers={"Location": f"/plans/{k}/"})
+                return Response(status=303, headers={"Location": f"/plans/{k}/"})
+        return Response(status=303, headers={"Location": f"/plans/{k}/"})
 
     user_id = request.user.id
     if not user_id:
         if request.accepted_renderer.format == "html":
             return Response(
-                status=302, headers={"Location": f"/_login?&next={request.path}"}
+                status=303, headers={"Location": f"/_login?&next={request.path}"}
             )
         else:
             return Response(
@@ -912,7 +912,7 @@ def plan_view(request, selected_plan):
         current_start = arrow.get(current_plan["start"])
         current_end = arrow.get(current_plan["end"])
         rebate_amount = Decimal(
-            current_plan["price"]["sats"]
+            current_plan["price"].get("sats", 0)
             * ((current_end - present) / (current_end - current_start))
         )
     topup_needed = -min(
@@ -1008,9 +1008,9 @@ urls = [
 def handle(request):
     # if request.data and not isinstance(request.data, dict):
     #    return Response("Bad request", status=400, template_name="base.html")
-    if request.domain != settings["DOMAIN"]:
+    if not request.is_tor and (request.get_host() != os.environ["HOST"]):
         return Response(
-            status=302, headers={"location": "https://" + settings["domain"]}
+            status=301, headers={"location": "https://" + os.environ["HOST"]}
         )
 
     for path_re, view in urls:
@@ -1018,7 +1018,7 @@ def handle(request):
         if m:
             response = view(request, **m.groupdict())
             # add format=api if this is an internal redirect an dthe original request had it
-            if response.status_code in [302, 303, 307, 308]:
+            if response.status_code in [301, 302, 303, 307, 308]:
                 location = parse.urlsplit(response.get("location", ""))
                 if not location.netloc:
                     if "format" in request.query_params:
