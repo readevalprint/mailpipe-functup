@@ -1,5 +1,6 @@
 # vim: syntax=python
 
+from lazysignup.templatetags import lazysignup_tags
 from django.urls import include, path, re_path
 from functup import (
     print,
@@ -363,47 +364,65 @@ def faq(request):
 
 def welcome(request):
     """Welcome, this is the API documentation for Mailpipe"""
+    if not request.is_tor and (request.get_host() != os.environ["HOST"]):
+        return Response(
+            status=301, headers={"location": "https://" + os.environ["HOST"]}
+        )
+
     data = {"welcome": "This is the JSON view of the welcome page", "plans": PLANS}
     return Response(data, template_name="index.html")
 
 
-def email_list_view(request):
+def email_list(request):
     """
-    Get your token from http://functup.com
+    Get your token from [https://functup.com](https://functup.com)
+
+        $ TOKEN=...
+
+    ## Create a new Inbox
+
+        $ $ADDRESS=foo@mailpipe.io
+        $ curl -H "Authorization: Token db229d7d71ada67ab1259af81b7c336f659d8081" -d address=$ADDRESS -d callback_url="" https://mailpipe.io
+
+
+    
+        $ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/
 
     ## [List all Inboxes](/?format=api)
 
     
         $ TOKEN=111111111111111111
-        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/
+        $ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/
 
 
     ## Retrieve an Inbox
 
         $ TOKEN=111111111111111111
-        $ INBOX=foo@mailpipe.io
     
-        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/$INBOX
+        $ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/$ADDRESS/
     
 
     ## Delete an Inbox
 
     You can delete an inbox with the `DELETE` method or by POSTing `delete` in form or json data
 
-        $ TOKEN=111111111111111111
-        $ INBOX=foo@mailpipe.io
     
-        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$ADDRESS/
 
         # OR
     
-        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$ADDRESS/
 
         # or
 
-        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$ADDRESS/
 
     """
+
+    if not request.is_tor and (request.get_host() != os.environ["HOST"]):
+        return Response(
+            status=301, headers={"location": "https://" + os.environ["HOST"]}
+        )
     user_id = request.user.id
     if not user_id:
         return Response(status=307, headers={"Location": "/welcome/"})
@@ -614,39 +633,35 @@ def owns_email(user_id, email):
 
 def email_detail_view(request, email_address):
     """
-    Get your token from http://functup.com
+    Get your token from [https://functup.com](https://functup.com)
+
+        $ TOKEN=...
 
     ## [List all Inboxes](/?format=api)
 
     
-        $ TOKEN=111111111111111111
-        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/
+        $ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/
 
 
     ## Retrieve an Inbox
 
-        $ TOKEN=111111111111111111
-        $ INBOX=foo@mailpipe.io
-    
-        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/$INBOX
+        $ ADDRESS=foo@mailpipe.io
+        $ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/$ADDRESS/
     
 
     ## Delete an Inbox
 
     You can delete an inbox with the `DELETE` method or by POSTing `delete` in form or json data
 
-        $ TOKEN=111111111111111111
-        $ INBOX=foo@mailpipe.io
-    
-        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$ADDRESS/
 
         # OR
     
-        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$ADDRESS/
 
         # or
 
-        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$INBOX/
+        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$ADDRESS/
 
     """
 
@@ -1084,7 +1099,7 @@ def plan_view(request, selected_plan):
 
 urls = [
     ("^/welcome/$", welcome),
-    (r"^/$", email_list_view),
+    (r"^/$", email_list),
     (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
     (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
     (
@@ -1121,10 +1136,10 @@ urlpatterns = [
     ),
     re_path(
         r"^$",
-        api_view(["GET", "POST", "DELETE"])(
+        api_view(["GET", "POST"])(
             renderer_classes(
                 [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
-            )(email_list_view)
+            )(email_list)
         ),
     ),
     re_path(
@@ -1257,17 +1272,19 @@ options = handle
 
 TEMPLATE_CONTEXT = {}
 
+TEMPLATE_LIBRARIES = {"lazysignup_tags": lazysignup_tags.register}
+
 
 def add_template_context(request):
     return TEMPLATE_CONTEXT
 
 
 def add_user_context(request):
-    return {"settings": settings}
+    return {"user": request.user}
 
 
 def add_settings_context(request):
-    return {"user": request.user}
+    return {"settings": settings}
 
 
 CONTEXT_PROCESSORS = [add_template_context, add_user_context, add_settings_context]

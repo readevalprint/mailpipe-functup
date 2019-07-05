@@ -17,9 +17,9 @@
       <p class="lead font-weight-normal">A simple API for incoming email.</p>
 
       {% if user.is_authenticated %}
-        <a href="/demo" class="btn btn-primary">Walk through the demo</a>
+        <a href="/?format=api" class="btn btn-primary">Walk through the demo</a>
       {% else %}
-        <form action="/_login?lazy&next=/demo" method=POST>
+        <form action="/_login?lazy&next=/?format=api" method=POST>
           {% csrf_token %}
           <button class="btn btn-large btn-outline-secondary">Let me try it!</button>
           <a href="/_login" class="btn btn-large btn-primary">Sign me up!</a>
@@ -70,7 +70,9 @@
                 <li> Callback URL </li>
               {% endif %}
               {% if  plan.features.custom_mx %}
-                <li>Custom domain</li>
+                <li>Unlimited custom domains</li>
+              {% else %}
+                <li>Mailpipe.io domain</li>
               {% endif %}
             </ul>
           </div>

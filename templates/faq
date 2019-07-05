@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="alert alert-info">
+    Deleted: {{ deleted }}
+  </div>
+{% endblock %}

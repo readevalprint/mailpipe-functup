@@ -5,7 +5,25 @@
   <h2>Plans</h2>
 
   {% if profile.data.current_plan %}
-    Current plan: {{ profile.data.current_plan }}
+
+    {%with plan=profile.data.current_plan%}
+      <h4>Current Plan</h4>
+      <ul class=" mt-3 mb-4">
+        <li>API access</li>
+        {% if plan.features.max_inboxes == 'UNLIMITED' %}
+          <li><strong>UNLIMITED</strong> inboxes!</li>
+        {% else %}
+          <li>Up to <strong>{{ plan.features.max_inboxes }}</strong> inboxes</li>
+        {% endif %}
+        <li>Email support</li>
+        {% if  plan.features.callback %}
+          <li>Callback URL for server notifications</li>
+        {% endif %}
+        {% if  plan.features.custom_mx %}
+          <li>Custom domain</li>
+        {% endif %}
+      </ul>
+    {% endwith %}
   {% else %}
     Current plan: Demo account
   {% endif %}
@@ -87,10 +105,10 @@
     <button class="btn btn-primary" id='submit'>Choose Plan</button>
   </form>
 
-    <script>
-      $(function(){
-        var activeurl = window.location.pathname;
-        $('a[href="/plans/"]').addClass('active');
-      })
-    </script>
+  <script>
+    $(function(){
+      var activeurl = window.location.pathname;
+      $('a[href="/plans/"]').addClass('active');
+    })
+  </script>
 {% endblock content %}

@@ -2,7 +2,7 @@
 <html>
 
   {% load  static %}
-  {% load rest_framework  %}
+  {% load rest_framework lazysignup_tags %}
 
   <head>
     <link rel="shortcut icon" href="/static/favicon.ico" />
@@ -11,16 +11,16 @@
 
       <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
       <title>{% block meta_title %}Mailpipe{% endblock %} </title>
-      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+      <link rel="stylesheet" href="{% static "bootstrap/4_3_1/css/bootstrap.min.css" %}" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T">
 
 
       <script src="{% static "rest_framework/js/jquery-3.3.1.min.js" %}"></script>
-      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+      <script src="{% static "bootstrap/4_3_1/js/bootstrap.min.js" %}" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"></script>
+      <script src="{% static "popper_js/1_14_7/umd/popper.min.js" %}" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"></script>
       <script src="{% static "js/jsoneditor.min.js" %}"></script>
       <script src="{% static "js/jsoneditor_init.js" %}"></script>
       <script src="{% static "rest_framework/js/prettify-min.js" %}"></script>
       <script src="{% static "rest_framework/js/default.js" %}"></script>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
       <style type="text/css">
         body {
           padding-top: 20px;
@@ -103,7 +103,7 @@
             {% if user.is_authenticated %}
               <li class="nav-item">
               <a class="nav-link" href="/welcome/">Welcome 
-                {% if user.is_lazy %}
+                {% if user|is_lazy_user %}
                   Anon
                 {% else %}
                   {{ user.username }}
@@ -113,16 +113,16 @@
               <li  class="nav-item">
               <a class="nav-link" href="/">Inboxes</a>
               </li>
-              {% if not user.is_lazy %}
+              {% if not user|is_lazy_user %}
                 <li class="nav-item">
                 <a class="nav-link" href="/topup/">Top up BTC balance</a>
                 </li>
-              <li class="nav-item">
-              <a  class="nav-link" href="/plans/">Plan</a>
-              </li>
-              <li class="nav-item">
-              <a class="nav-link"  href="/transactions/">Transactions</a>
-              </li>
+                <li class="nav-item">
+                <a  class="nav-link" href="/plans/">Plan</a>
+                </li>
+                <li class="nav-item">
+                <a class="nav-link"  href="/transactions/">Transactions</a>
+                </li>
               {% endif %}
               <li class="nav-item">
               <form action='/_logout' method="POST">
@@ -136,11 +136,15 @@
           </ul>
         </div>
       {% endblock %}
-      {% if user.is_lazy %}
+      {% if user|is_lazy_user %}
         <div class="alert alert-warning sticky-top position-sticky">
 
           Thanks for trying out Mailpipe, remember to
-          <a href="https://{{ settings.FUNCTUP_HOST }}/convert/?next=https://{{ settings.DOMAIN }}/_login">set a username and password on Functup</a>
+          {% if request.user.is_tor %}
+            <a href="https://{{ settings.TOR_DOMAIN }}/convert/?next=https://{{ request.get_host }}/_login">set a username and password on Functup</a>
+          {% else %}
+            <a href="https://{{ settings.CLEAR_DOMAIN }}/convert/?next=https://{{ request.get_host }}/_login">set a username and password on Functup</a>
+          {% endif%}
         </div>
       {% endif %}
 
@@ -162,7 +166,7 @@
             <h5>Resources</h5>
             <ul class="list-unstyled text-small">
               <li><a class="" href="/?format=api">Documentation</a></li>
-              <li><a class="" href="/faq">FAQs</a></li>
+              <li><a class="" href="/faq/">FAQs</a></li>
             </ul>
           </div>
           <div class="col-6 col-md">
@@ -170,7 +174,7 @@
             <ul class="list-unstyled text-small">
               <li>Follow <a class="" href="https://twitter.com/mailpipe">@Mailpipe</a> on twitter</li>
               <li>Runs on Python 3 🐍</li>
-              <li>Hosted on <a target="blank" href="https://{{ settings.FUNCTUP_HOST }}">Functup</a></li>
+              <li>Hosted on <a target="blank" href="https://{{ settings.CLEAR_DOMAIN }}">Functup</a></li>
             </ul>
           </div>
           <div class="col-2">
