@@ -1,4 +1,15 @@
 # vim: syntax=python
+
+from django.urls import include, path, re_path
+from functup import (
+    print,
+    Response,
+    SnekTemplateHTMLRenderer,
+    JSONRenderer,
+    BrowsableAPIRenderer,
+)
+from rest_framework.decorators import api_view, renderer_classes
+
 from uuid import uuid4
 import base64
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
@@ -336,16 +347,63 @@ def update_invoice(invoice_id):
 STATIC_URL = "/static/"
 
 
-def welcome_view(request):
-    DOCS["name"] = "Welcome"
-    DOCS["description"] = "Welcome to Mailpipe"
-    data = {"welcome": "This is the API version of the welcome page", "plans": PLANS}
+def faq(request):
+    """
+    # Some questions you may also have
+    """
+    faqs = {
+        "How do I use my own domain?": f"First purchase the correct plan, then you will need to add an MX record pointing to mx.mailpipe.io and a TXT record with a value 'func=mailpipe&user={ request.user.id or 'USER_ID'}'",
+        "Can I use Mailpipe directly from Tor?": f"Absolutely, all Functup sites automatically are accessable from Tor as well. Mailpipe is availiable at https://mailpipe.{ settings['TOR_DOMAIN'] }.",
+        "How can I pay with Lightning?": "Connect to our LND node: 0214b87e06039a44b5a23580f0e2f801b913fe9e3dc29169419f5eed15e449e9d3@35.243.77.241:9735",
+        "Can I pay over Tor?": "Sure, connect to our Tor LND node: fafumon6bsuvs7rchggboh5il4byab5ccin7q353i6rj7ww6fengcsqd.onion:9735",
+    }
+
+    return Response({"faqs": faqs}, template_name="faq.html")
+
+
+def welcome(request):
+    """Welcome, this is the API documentation for Mailpipe"""
+    data = {"welcome": "This is the JSON view of the welcome page", "plans": PLANS}
     return Response(data, template_name="index.html")
 
 
 def email_list_view(request):
-    DOCS["name"] = "Inbox"
-    DOCS["description"] = "Make an OPTIONS request to see the required schema. "
+    """
+    Get your token from http://functup.com
+
+    ## [List all Inboxes](/?format=api)
+
+    
+        $ TOKEN=111111111111111111
+        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/
+
+
+    ## Retrieve an Inbox
+
+        $ TOKEN=111111111111111111
+        $ INBOX=foo@mailpipe.io
+    
+        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/$INBOX
+    
+
+    ## Delete an Inbox
+
+    You can delete an inbox with the `DELETE` method or by POSTing `delete` in form or json data
+
+        $ TOKEN=111111111111111111
+        $ INBOX=foo@mailpipe.io
+    
+        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$INBOX/
+
+        # OR
+    
+        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$INBOX/
+
+        # or
+
+        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$INBOX/
+
+    """
     user_id = request.user.id
     if not user_id:
         return Response(status=307, headers={"Location": "/welcome/"})
@@ -373,6 +431,7 @@ def email_list_view(request):
                 "title": "Inbox email address",
                 "description": "Email address you want to receive email.",
                 "format": "email",
+                "pattern": r"^[\w-]+@([\w-]+\.)+[\w-]+$",
                 "minLength": 1,
             },
             "callback_url": {
@@ -382,7 +441,7 @@ def email_list_view(request):
                 "minLength": 0,
                 "default": "",
                 "format": "uri",
-                "pattern": "^(https|http)://.*|",
+                "pattern": "^(https|http)://.*|^$",
             },
         },
         "required": ["address", "callback_url"],
@@ -410,6 +469,7 @@ def email_list_view(request):
     TEMPLATE_CONTEXT["form"] = form
     if request.method == "POST":
         if form.is_valid():
+            print("form is valid")
             if (
                 data["count"]
                 < (
@@ -442,7 +502,8 @@ def email_list_view(request):
 
     if request.accepted_renderer.format in ["json", "api"]:
         if form.errors:
-            data = form.errors.get_json_data()
+            data = form.errors.form.errors.get_json_data()
+            print(data)
     status = 200
     if form.errors:
         status = 400
@@ -552,8 +613,42 @@ def owns_email(user_id, email):
 
 
 def email_detail_view(request, email_address):
-    DOCS["name"] = "Inbox"
-    DOCS["description"] = ""
+    """
+    Get your token from http://functup.com
+
+    ## [List all Inboxes](/?format=api)
+
+    
+        $ TOKEN=111111111111111111
+        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/
+
+
+    ## Retrieve an Inbox
+
+        $ TOKEN=111111111111111111
+        $ INBOX=foo@mailpipe.io
+    
+        $ curl -L -H "Authorization: Token $TOKEN" https://mailpipe.io/$INBOX
+    
+
+    ## Delete an Inbox
+
+    You can delete an inbox with the `DELETE` method or by POSTing `delete` in form or json data
+
+        $ TOKEN=111111111111111111
+        $ INBOX=foo@mailpipe.io
+    
+        $ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$INBOX/
+
+        # OR
+    
+        $ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$INBOX/
+
+        # or
+
+        $ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$INBOX/
+
+    """
 
     user_id = request.user.id
     if not user_id:
@@ -602,8 +697,11 @@ def email_detail_view(request, email_address):
     if "delete" in request.data or request.method == "DELETE":
         error = delete_email(email_address)
         if not error:
-            return Response(status=303, headers={"location": "/"})
-        form.add_error(None, error)
+            return Response(
+                {"deleted": email_address}, template_name="email_address_deleted.html"
+            )
+        else:
+            form.add_error(None, error)
     elif request.method == "POST":
         if form.is_valid():
             r = client.patch(
@@ -985,23 +1083,119 @@ def plan_view(request, selected_plan):
 
 
 urls = [
-    (r"/welcome/$", welcome_view),
-    (r"/$", email_list_view),
-    (r"/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
-    (r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
+    ("^/welcome/$", welcome),
+    (r"^/$", email_list_view),
+    (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
+    (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
     (
-        r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
+        r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
         message_detail_view,
     ),
     (
-        r"/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
         attachment_detail,
     ),
-    (r"/topup/", topup_view),
-    (r"/transactions/", transaction_view),
-    (r"/update_invoice/", update_invoice_view),
-    (r"/plans/(?P<selected_plan>[a-z0-9]*)/", plan_view),
-    (r"/static/(?P<path>.*)$", static),
+    (r"^/topup/$", topup_view),
+    (r"^/transactions/$", transaction_view),
+    (r"^/update_invoice/$", update_invoice_view),
+    (r"^/plans/(?P<selected_plan>[a-z0-9]*)/$", plan_view),
+    (r"^/static/(?P<path>.*)$", static),
+]
+
+urlpatterns = [
+    re_path(
+        "^faq/$",
+        api_view(["GET"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(faq)
+        ),
+    ),
+    re_path(
+        "^welcome/$",
+        api_view(["GET"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(welcome)
+        ),
+    ),
+    re_path(
+        r"^$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(email_list_view)
+        ),
+    ),
+    re_path(
+        r"^(?P<email_address>[^/]+@[^/]+.[^/])/$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(email_detail_view)
+        ),
+    ),
+    re_path(
+        r"^(?P<email_address>[^/]+@[^/]+.[^/])/messages/$",
+        api_view(["GET"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(message_list_view)
+        ),
+    ),
+    re_path(
+        r"^(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
+        api_view(["GET", "DELETE"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(message_detail_view)
+        ),
+    ),
+    re_path(
+        r"^(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
+        api_view(["GET"])(
+            renderer_classes(
+                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
+            )(attachment_detail)
+        ),
+    ),
+    re_path(
+        r"^topup/$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(topup_view)
+        ),
+    ),
+    re_path(
+        r"^transactions/$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(transaction_view)
+        ),
+    ),
+    re_path(
+        r"^update_invoice/$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(update_invoice_view)
+        ),
+    ),
+    re_path(
+        r"^plans/(?P<selected_plan>[a-z0-9]*)/$",
+        api_view(["GET", "POST"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(plan_view)
+        ),
+    ),
+    re_path(
+        r"^plans/$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(plan_view)
+        ),
+        {"selected_plan": None},
+    ),
+    re_path(
+        r"^static/(?P<path>.*)$",
+        api_view(["GET", "POST", "DELETE"])(
+            renderer_classes([SnekTemplateHTMLRenderer])(static)
+        ),
+    ),
 ]
 
 
