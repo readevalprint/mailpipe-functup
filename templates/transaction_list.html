@@ -18,7 +18,7 @@
   <table class="table table-hover table-sm">
     <thead>
       <tr>
-        <th>id</th>
+        <th>ID</th>
         <th>received</th>
         <th></th>
         <th>status</th>
@@ -31,7 +31,7 @@
         <tr>
           <td>{{ r.uuid }}</td>
           <td>
-            {{ r.amount | floatformat:8}}  BTC
+            ${{ r.amount | floatformat:2}} USD
           </td>
           <td>
             {% if r.status == 'new' %}
@@ -44,9 +44,6 @@
           </td>
           <td>
             {{ r.info }}  
-            {% if r.invoice_price %}
-            {{ r.invoice_price }} BTC 
-            {% endif %}
           </td>
           <td>
             {{ r.created|date:"SHORT_DATE_FORMAT" }} 

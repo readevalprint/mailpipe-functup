@@ -57,7 +57,7 @@
             <h4 class="my-0 font-weight-normal"> {{ plan.name }} </h4>
           </div>
           <div class="card-body">
-            <h1 class="card-title pricing-card-title"> {{ plan.price.BTC }} BTC </h1>
+            <h1 class="card-title pricing-card-title"> ${{ plan.price.USD }}  </h1>
             <ul class="list-unstyled mt-3 mb-4">
               {% if plan.features.max_inboxes == 'UNLIMITED' %}
                 <li><strong>UNLIMITED</strong> inboxes!</li>
@@ -69,10 +69,9 @@
               {% if  plan.features.callback %}
                 <li> Callback URL </li>
               {% endif %}
-              {% if  plan.features.custom_mx %}
-                <li>Unlimited custom domains</li>
-              {% else %}
                 <li>Mailpipe.io domain</li>
+              {% if  plan.features.custom_mx %}
+                <li>Custom MX record</li>
               {% endif %}
             </ul>
           </div>

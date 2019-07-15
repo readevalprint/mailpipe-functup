@@ -40,33 +40,33 @@ UNLIMITED = "UNLIMITED"
 FEATURES = {
     "personal": {"max_inboxes": 10, "callback": True},
     "pro": {"max_inboxes": 100, "callback": True},
-    "enterprise": {"max_inboxes": UNLIMITED, "custom_mx": True, "callback": True},
+    "enterprise": {"max_inboxes": 300, "custom_mx": True, "callback": True},
 }
 
 PLANS = {
     "basic30": {
         "name": "Basic",
         "features": FEATURES["personal"],
-        "duration": {"days": 30},
-        "price": {"BTC": Decimal("0.00055")},
+        "duration": {"days": 90},
+        "price": {"USD": Decimal("10.00")},
     },
     "extra30": {
         "name": "Extra",
         "features": FEATURES["pro"],
-        "duration": {"days": 30},
-        "price": {"BTC": Decimal("0.005")},
+        "duration": {"days": 90},
+        "price": {"USD": Decimal("50.00")},
         "recommended": True,
     },
     "super30": {
         "name": "Super",
         "features": FEATURES["enterprise"],
-        "duration": {"days": 30},
-        "price": {"BTC": Decimal("0.033")},
+        "duration": {"days": 90},
+        "price": {"USD": Decimal("90.00")},
     },
 }
 
-for p in PLANS:
-    PLANS[p]["price"]["sats"] = PLANS[p]["price"]["BTC"] * BTC
+# for p in PLANS:
+#    PLANS[p]["price"]["sats"] = PLANS[p]["price"]["BTC"] * BTC
 
 
 schema_options = {
@@ -114,9 +114,7 @@ def get_or_create_profile(user_id):
         if profile_res.status_code != 201:
             1 / 0
     profile = profile_res.json()
-    TEMPLATE_CONTEXT["balance"] = round(
-        Decimal(profile["data"].get("balance", 0)) / BTC, 8
-    )
+    TEMPLATE_CONTEXT["balance"] = round(Decimal(profile["data"].get("balance", 0)), 2)
     TEMPLATE_CONTEXT["profile"] = profile
     return profile
 
@@ -130,78 +128,12 @@ def update_invoice(user_id, invoice_id):
     invoice = btcpayclient.get_invoice(invoice_id)
     amount = 0
     if invoice["status"] in ["complete", "confirmed"]:
-        amount = max(
-            Decimal(invoice["paymentSubtotals"]["BTC"]), Decimal(invoice["amountPaid"])
-        )
+        amount = Decimal(invoice["price"])
+
     return client.patch(
         fr"/_data/v1/transactions/{user_id}/{ invoice_id }",
         data={"data": {"user_id": user_id, "amount": amount, "invoice": invoice}},
     )
-
-
-def account_info(request, current_usage, profile, errors):
-    last_invoice = None
-    invoice_link = ""
-    result = ""
-    user_id = profile["data"]["user_id"]
-    transactions = client.get(rf"/_data?path__startswith=v1/transactions/{ user_id }")[
-        "json"
-    ]["results"]
-    balance = Decimal("0")
-    for t in transactions:
-        balance = balance + Decimal(t["data"].get("amount", 0))
-        if "invoice" in t["data"] and t["data"]["invoice"]["status"] == "new":
-            last_invoice = t["data"]["invoice"]
-            t = update_invoice(profile["data"]["user_id"], last_invoice["id"])["json"]
-        if last_invoice:
-            invoice_link = f"""
-                <div class="alert alert-primary" role="alert">
-                  <h3>
-                    Your topup invoice is ready</h3> <a href="{last_invoice['url']}">{last_invoice['url']}</a>
-                </div>
-                """
-    result = (
-        result
-        + rf"""
-        <div class="row">
-          <div class="col">
-            { invoice_link }
-            <form action="." method="POST" class="form-inline">
-              <label for="amount">Amount</label>
-              <div class="form-group  mx-sm-3 mb-1">
-                <input name="amount"  id="amount" class="form-control { "is-invalid" if 'amount' in errors else ""  }" value="{ request['data'].get('amount', '') }">
-                { 'amount' in errors and rf'''
-                <div class="invalid-tooltip">
-                  { errors['amount'] }
-                </div>
-                ''' or " " }
-              </div>
-              { csrf_input }
-              <button type="submit" class="btn btn-primary mb-2"  {'disabled' if invoice_link else ''}>Top up</button>
-            </form>
-          </div>
-        </div>
-    """
-    )
-
-    result = (
-        result
-        + rf"""
-    <div class="row">
-        <div class="col">
-            <p>
-                Current balance: { '%.8f' % (balance / BTC) } BTC </br>
-                Addresses: { current_usage['num_addresses'] } @ { '%.8f' % (current_usage['sats_per_address'] / BTC) } BTC/day <br>
-                Data usage: { int(current_usage['messege_length_sum'] / 1000) }KB @ { current_usage['sats_per_byte']  } sat/byte <br>
-                Next billing cycle: { current_usage['next_billing_cycle'].humanize() } <br>
-                Estimated billing amount: { '%.8f' % (current_usage['sats_total'] / BTC)  } BTC <br>
-            </p>
-        </div>
-    </div>
-    """
-    )
-
-    return result
 
 
 def topup_view(request):
@@ -217,14 +149,7 @@ def topup_view(request):
     schema = {
         "title": "Top up account",
         "type": "object",
-        "properties": {
-            "amount": {
-                "type": "number",
-                "title": "BTC",
-                "minimum": 0.00001,
-                "maximum": 0.1,
-            }
-        },
+        "properties": {"amount": {"type": "number", "title": "USD", "minimum": 0.01}},
     }
     if request.method == "OPTIONS":
         return Response({"schema": schema}, template_name="rest_framework_base.html")
@@ -267,7 +192,7 @@ def topup_view(request):
             invoice = btcpayclient.create_invoice(
                 {
                     "price": amount,
-                    "currency": "BTC",
+                    "currency": "USD",
                     "redirectURL": "https://" + os.environ["HOST"],
                     "itemDescription": "top up",
                     "notificationURL": rf"https://{os.environ['HOST']}/update_invoice/",
@@ -335,7 +260,8 @@ def update_invoice(invoice_id):
             d = r.json()
             transaction = r.json()["results"][0]
             transaction["data"]["invoice"] = invoice
-            transaction["data"]["amount_sats"] = int(Decimal(invoice["btcPaid"]) * BTC)
+            # transaction["data"]["amount_sats"] = int(Decimal(invoice["btcPaid"]) * BTC)
+            transaction["data"]["amount_usd"] = float(invoice["price"])
             r = client.patch(transaction["url"], data=transaction)
             data = invoice
 
@@ -839,72 +765,6 @@ def page_result_adapter(request, j, func):
     return j
 
 
-def get_current_usage(emails):
-    num_addresses = len(emails)
-    messege_length_sum = 0
-    message_count = 0
-    for e in emails:
-        message_count = message_count + e["message_count"]
-        messege_length_sum = messege_length_sum + e["messege_length_sum"]
-
-    present = arrow.utcnow()
-    return {
-        "num_addresses": num_addresses,
-        "message_count": message_count,
-        "messege_length_sum": messege_length_sum,
-        "current_billing_cycle": present.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ),
-        "next_billing_cycle": present.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).shift(hours=24),
-        "sats_per_message": RATE["sats_per_message"],
-        "sats_per_address": RATE["sats_per_address"],
-        "sats_per_byte": RATE["sats_per_byte"],
-        "sats_total": (
-            Decimal(message_count * RATE["sats_per_message"])
-            + Decimal(num_addresses * RATE["sats_per_address"])
-            + Decimal(messege_length_sum * RATE["sats_per_byte"])
-        ),
-    }
-
-
-def bill_users(request):
-    if request["user"]["id"] != settings["OWNER"]["id"]:
-        return Response("no")
-
-    profiles = client.get("/_data?path__startswith=v2/profile")["json"]["results"]
-    r = []
-    for profile in profiles:
-        r = r + [bill_user(profile)]
-    return Response(json.dumps(r, indent=2), content_type="json")
-
-
-def bill_user(profile):
-    user_id = profile["url"].split("/")[-1]
-    emails = user_email_list(user_id)
-    current_usage = get_current_usage(emails)
-    current_usage["current_billing_cycle"] = current_usage[
-        "current_billing_cycle"
-    ].timestamp
-    current_usage["next_billing_cycle"] = current_usage["next_billing_cycle"].timestamp
-    r = client.post(
-        r"/_data",
-        data=json.loads(
-            json.dumps(
-                {
-                    "path": rf'v1/transactions/{user_id}/{ current_usage["current_billing_cycle"] }',
-                    "data": {
-                        "amount": -current_usage["sats_total"],
-                        "current_usage": current_usage,
-                    },
-                }
-            )
-        ),
-    )
-    return r["json"]
-
-
 def static(request, path):
     r = client.get(f"/_data/static/{path}?format=file", format="file")
     if r.status_code == 200:
@@ -925,8 +785,9 @@ def transaction_adaptor(request, t):
     d = {
         "created": arrow.get(t["created"]).datetime,
         "updated": arrow.get(t["updated"]).datetime,
-        "amount": Decimal(t["data"].get("amount_sats", 0)) / BTC,
+        "amount": Decimal(t["data"].get("amount_usd", 0)),
         "uuid": t["path"].split("/")[-1],
+        "info": t.get("info", "no info"),
     }
     if "plan" in t["data"]:
         duration = list(t["data"]["plan"]["duration"].items())[0]
@@ -968,7 +829,7 @@ def transaction_view(request):
     page_size = request.query_params.get("page_size", None)
     if page_size:
         d["page_size"] = page_size
-    d["path__startswith"] = f"v1/transactions/{user_id}"
+    d["path__startswith"] = f"v1/transactions/{user_id}/"
     url = f"/_data?" + parse.urlencode(d)
     r = client.get(url)
     data = []
@@ -977,7 +838,7 @@ def transaction_view(request):
 
     balance = 0
     for t in data.get("results", []):
-        balance = balance + t["data"].get("amount_sats", 0)
+        balance = balance + t["data"].get("amount_usd", 0)
 
     profile["data"]["balance"] = balance
     client.patch(profile["url"], data={"data": profile["data"]})
@@ -1025,18 +886,18 @@ def plan_view(request, selected_plan):
         current_start = arrow.get(current_plan["start"])
         current_end = arrow.get(current_plan["end"])
         rebate_amount = Decimal(
-            current_plan["price"].get("sats", 0)
+            current_plan["price"].get("USD", 0)
             * ((current_end - present) / (current_end - current_start))
         )
     topup_needed = -min(
         0,
         Decimal(
             (Decimal(rebate_amount) + Decimal(profile["data"].get("balance", 0)))
-            - PLANS[selected_plan]["price"]["sats"]
+            - PLANS[selected_plan]["price"]["USD"]
         ),
     )
-    data["topup_needed"] = round(topup_needed / BTC, 8)
-    data["rebate_amount"] = round(rebate_amount / BTC, 8)
+    data["topup_needed"] = round(topup_needed, 2)
+    data["rebate_amount"] = round(rebate_amount, 2)
     data["selected_plan"] = selected_plan
     data["plan"] = PLANS[selected_plan]
 
@@ -1058,7 +919,7 @@ def plan_view(request, selected_plan):
             new_plan = PLANS[form.cleaned_data["json"]["plan"]]
             if rebate_amount + Decimal(profile["data"].get("balance", 0)) >= new_plan[
                 "price"
-            ]["sats"] * Decimal("0.9"):
+            ]["USD"] * Decimal("0.9"):
                 new_plan["start"] = present.isoformat()
                 new_plan["end"] = present.shift(**new_plan["duration"]).isoformat()
                 profile["data"]["current_plan"] = new_plan
@@ -1071,7 +932,7 @@ def plan_view(request, selected_plan):
                         data={
                             "path": rf"v1/transactions/{user_id}/{ uuid4() }",
                             "data": {
-                                "amount_sats": rebate_amount,
+                                "amount_usd": rebate_amount,
                                 "rebated_plan": current_plan,
                                 "user_id": user_id,
                             },
@@ -1083,7 +944,7 @@ def plan_view(request, selected_plan):
                     data={
                         "path": rf"v1/transactions/{user_id}/{ uuid4() }",
                         "data": {
-                            "amount_sats": -new_plan["price"]["sats"],
+                            "amount_usd": -new_plan["price"]["USD"],
                             "plan": new_plan,
                             "user_id": user_id,
                         },
@@ -1187,7 +1048,7 @@ urlpatterns = [
         ),
     ),
     re_path(
-        r"^update_invoice/$",
+        r"^update_invoice/?$",
         api_view(["GET", "POST", "DELETE"])(
             renderer_classes([SnekTemplateHTMLRenderer])(update_invoice_view)
         ),
@@ -1207,9 +1068,7 @@ urlpatterns = [
     ),
     re_path(
         r"^static/(?P<path>.*)$",
-        api_view(["GET", "POST", "DELETE"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(static)
-        ),
+        api_view(["GET"])(renderer_classes([SnekTemplateHTMLRenderer])(static)),
     ),
 ]
 
