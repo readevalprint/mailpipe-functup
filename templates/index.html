@@ -49,8 +49,8 @@
     <h1 class="display-4">Pricing</h1>
     <p class="lead">Start programmatically receiving email for your users in just a few seconds</p>
   </div>
-  <div class="container">
-    <div class="card-deck text-center">
+  <div class="container text-center">
+    <div class="card-deck ">
       {% for name, plan in plans.items %}
         <div class="card mb-4 box-shadow">
           <div class="card-header">
@@ -78,18 +78,31 @@
           <div class="card-footer ">
             {% if plan.recommended %}
               <span class="text-muted">Recommended</span>
-              <a class="btn btn-lg btn-block btn-primary" href="/plans/{{ name }}">Choose plan</a>
+              <a class="btn btn-lg btn-block btn-primary" href="/plans/{{ name }}/">Choose plan</a>
               <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
             {% else %}
-              <a class="btn btn-lg btn-block btn-outline-primary" href="/plans/{{ name }}">Choose plan</a>
+              <a class="btn btn-lg btn-block btn-outline-primary" href="/plans/{{ name }}/">Choose plan</a>
               <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
             {% endif %}
           </div>
         </div>
 
       {% endfor %}
-
     </div>
+        <div class="card box-shadow">
+          <div class="card-header">
+            <h4 class="my-0 font-weight-normal">Custom</h4>
+          </div>
+          <div class="card-body">
+            <ul class="list-unstyled mt-3 mb-4">
+            <h1 class="card-title pricing-card-title">Contact Now</h1>
+              <li> Multiple custom domains </li>
+              <li>Invoice billing</li>
+              <li>Pay with wire transfer</li>
+            </ul>
+          </div>
+        </div>
+
   </div>
 
 {% endblock %}

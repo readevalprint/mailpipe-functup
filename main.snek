@@ -24,7 +24,7 @@ from decimal import Decimal
 from time import monotonic
 from urllib import parse
 from requests.exceptions import HTTPError
-
+import stripe
 import re2
 from io import BytesIO
 from html import escape
@@ -114,7 +114,7 @@ def get_or_create_profile(user_id):
         if profile_res.status_code != 201:
             1 / 0
     profile = profile_res.json()
-    TEMPLATE_CONTEXT["balance"] = round(Decimal(profile["data"].get("balance", 0)), 2)
+    TEMPLATE_CONTEXT["balance"] = round(profile["data"].get("balance", 0), 2)
     TEMPLATE_CONTEXT["profile"] = profile
     return profile
 
