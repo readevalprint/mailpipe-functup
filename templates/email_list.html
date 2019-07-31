@@ -43,10 +43,24 @@
       </div>
     {% endfor %}
     {% csrf_token %}
-    <button class="m-4 btn btn-primary btn-lg" id='submit'>Create Inbox</button>
+    <div class="row">
+      <div class="col-sm m-auto">
+        <button class="btn btn-primary btn-lg " id='submit'>Create Inbox</button>
+      </div>
+      <div class="col-sm m-auto">
+        <div class="">
+          Using {{ count }} of {{ inbox_quota }} inboxes
+        </div>
+        <div class="progress">
+          <div class="progress-bar" style="width: {% widthratio count inbox_quota 100 %}%;"  role="progressbar" aria-valuenow="{{count}}" aria-valuemin="0" aria-valuemax="{{ inbox_quota }}"></div>
+        </div>
+      </div>
+
+      <div class="col-sm">
+        <a class="m-4 btn btn-primary" href="{% url "subscription" %}">Get more inboxes!</a>
+      </div>
+    </div>
   </form>
-
-
   <table class="table table-hover">
     <thead>
       <tr>
@@ -71,10 +85,10 @@
             {{ r.messege_length_sum |filesizeformat }}
           </td>
           <td>
-            <a href="{{ r.messages }}" class="btn btn-secondary btn-sm" > Message{{ r.message_count|pluralize }} <span class="badge badge-light">{{ r.message_count }}</span></a>
+            <a href="{{ r.messages }}" class="btn btn-secondary btn-sm" > Message{{ r.message_count|pluralize }} <span class="badge ">{{ r.message_count }}</span></a>
           </td>
           <td>
-            <a href="{{ r.url }}" class="btn btn-outline-secondary btn-sm" >Edit</a>
+            <a href="{{ r.url }}" class="btn btn-outline-primary btn-sm" >Edit</a>
           </td>
           <td>
             <form id="" action="{{ r.url }}" method="POST">
@@ -93,5 +107,28 @@
       Go ahead and create an inbox :D
     </div>
   {% endif %}
-{% endblock %}
+
+  <div class="row">
+    <div class="col">
+      <div class="show multi-collapse" id="apidocs">
+        <div class="card card-body">
+          <h5 class="card-title">API Documentation</h5>
+          <p>
+          Get all email addresses:
+          <p>
+          <pre>$ curl -H "Authorization: Token $TOKEN" https://{{request.get_host}}</pre>
+          <p>
+          Delete an addresses:
+          </p>
+          <pre>$ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$ADDRESS/
+# OR
+$ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://mailpipe.io/$ADDRESS/
+# OR
+$ curl -L -H "Authorization: Token $TOKEN"  -H "Content-Type: application/json" -d '{"delete": true}'  https://mailpipe.io/$ADDRESS/
+</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endblock %}
 

@@ -8,13 +8,33 @@
 {{ detail }}
 </div>
 {% endif %}
+  <div class="row">
+    <div class="col">
+      <div class="show multi-collapse" id="apidocs">
+        <div class="card card-body">
+          <h5 class="card-title">API Documentation</h5>
+          <p> Get get this message: <p>
+          <pre>$ curl -H "Authorization: Token $TOKEN" https://{{request.get_host}}{{ request.path}}</pre>
+          <p> Delete get this message: <p>
+          <pre>$ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://{{request.get_host}}{{ request.path}}
+# OR
+$ curl -L -H "Authorization: Token $TOKEN" -d delete=1 https://{{request.get_host}}{{ request.path}}
+# or
+$ curl -L -H "Authorization: Token $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"delete": true}'  https://{{request.get_host}}{{ request.path}}
+</pre>
+          </div>
+        </div>
+      </div>
+    </div>
   <form id="" action='' method="POST">
     <input type="submit" value="Delete" class="btn btn-danger">
     <input type="hidden" name="delete" value="1">
     {% csrf_token %}
   </form>
 <h2>Meta data</h2>
-<pre>
+  <pre>
 From: {{ frm }}
 To: {{ to }}
 Subject: {{ subject }}

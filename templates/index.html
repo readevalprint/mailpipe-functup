@@ -5,104 +5,13 @@
   Home - {{ block.super }}
 {% endblock %}
 
-{% block bodyclass %}welcome{% endblock%}
 
 
 {% block content %}
 
-  <div class="position-relative overflow-hidden p-3 p-md-5 m-md-3 text-center bg-light" style="background: no-repeat  top/cover url(/static/images/mailpipe-tile.jpg)">
-    <div class="col-md-5 p-lg-5 mx-auto my-5">
-
-      <h1 class="display-4 font-weight-normal">Mailpipe</h1>
-      <p class="lead font-weight-normal">A simple API for incoming email.</p>
-
-      {% if user.is_authenticated %}
-        <a href="/?format=api" class="btn btn-primary">Walk through the demo</a>
-      {% else %}
-        <form action="/_login?lazy&next=/?format=api" method=POST>
-          {% csrf_token %}
-          <button class="btn btn-large btn-outline-secondary">Let me try it!</button>
-          <a href="/_login" class="btn btn-large btn-primary">Sign me up!</a>
-        </form>
-      {% endif %}
-    </div>
-    <div class="product-device box-shadow d-none d-md-block"></div>
-    <div class="product-device product-device-2 box-shadow d-none d-md-block"></div>
-  </div>
-
-  <div class="row featurette p-3 p-md-5 m-md-3">
-    <div class="col-md-7">
-      <h2 class="featurette-heading">Why Mailpipe? </h2>
-      <p class="lead">
-      Dynamically generate email addresses for your users<br>
-      Retrieve emails on your own time<br>
-      Automatic extraction of attachments<br>
-      Develop your app without a public web server<br>
-      </p>
-    </div>
-    <div class="col-md-5">
-      <img class="img-fluid"  src="{% static "images/filter-transparent.png" %}">
-    </div>
-  </div>
-
   <div class="pricing-header px-3 py-3 pt-md-5 pb-md-4 mx-auto text-center">
-    <h1 class="display-4">Pricing</h1>
     <p class="lead">Start programmatically receiving email for your users in just a few seconds</p>
   </div>
-  <div class="container text-center">
-    <div class="card-deck ">
-      {% for name, plan in plans.items %}
-        <div class="card mb-4 box-shadow">
-          <div class="card-header">
-            <h4 class="my-0 font-weight-normal"> {{ plan.name }} </h4>
-          </div>
-          <div class="card-body">
-            <h1 class="card-title pricing-card-title"> ${{ plan.price.USD }}  </h1>
-            <ul class="list-unstyled mt-3 mb-4">
-              {% if plan.features.max_inboxes == 'UNLIMITED' %}
-                <li><strong>UNLIMITED</strong> inboxes!</li>
-              {% else %}
-                <li>Up to <strong>{{ plan.features.max_inboxes }}</strong> inboxes</li>
-              {% endif %}
-              <li>API access</li>
-              <li>Email support</li>
-              {% if  plan.features.callback %}
-                <li> Callback URL </li>
-              {% endif %}
-                <li>Mailpipe.io domain</li>
-              {% if  plan.features.custom_mx %}
-                <li>Custom MX record</li>
-              {% endif %}
-            </ul>
-          </div>
-          <div class="card-footer ">
-            {% if plan.recommended %}
-              <span class="text-muted">Recommended</span>
-              <a class="btn btn-lg btn-block btn-primary" href="/plans/{{ name }}/">Choose plan</a>
-              <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
-            {% else %}
-              <a class="btn btn-lg btn-block btn-outline-primary" href="/plans/{{ name }}/">Choose plan</a>
-              <h3> {% for d, t in plan.duration.items %} {{t}}  {{ d }} {% endfor %} </h3>
-            {% endif %}
-          </div>
-        </div>
-
-      {% endfor %}
-    </div>
-        <div class="card box-shadow">
-          <div class="card-header">
-            <h4 class="my-0 font-weight-normal">Custom</h4>
-          </div>
-          <div class="card-body">
-            <ul class="list-unstyled mt-3 mb-4">
-            <h1 class="card-title pricing-card-title">Contact Now</h1>
-              <li> Multiple custom domains </li>
-              <li>Invoice billing</li>
-              <li>Pay with wire transfer</li>
-            </ul>
-          </div>
-        </div>
-
-  </div>
+  
 
 {% endblock %}

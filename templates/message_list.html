@@ -60,5 +60,18 @@
       <a href="mailto:{{ email.address }}">{{ email.address }}</a>
     </div>
   {% endif %}
+  <div class="row">
+    <div class="col">
+      <div class="show multi-collapse" id="apidocs">
+        <div class="card card-body">
+          <h5 class="card-title">API Documentation</h5>
+          <p>
+          Get all messages in an inbox:
+          <p>
+          <pre>$ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/$ADDRESS/</pre>
+          </div>
+        </div>
+      </div>
+    </div>
 {% endblock %}
 

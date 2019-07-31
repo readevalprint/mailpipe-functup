@@ -10,7 +10,7 @@ from functup import (
     BrowsableAPIRenderer,
 )
 from rest_framework.decorators import api_view, renderer_classes
-
+import random
 from uuid import uuid4
 import base64
 from functup import print, Response, FileResponse, get_channel, APIClient, settings
@@ -36,34 +36,93 @@ BTC = Decimal(10 ** 8)
 from btcpay import BTCPayClient
 import os
 
-UNLIMITED = "UNLIMITED"
-FEATURES = {
-    "personal": {"max_inboxes": 10, "callback": True},
-    "pro": {"max_inboxes": 100, "callback": True},
-    "enterprise": {"max_inboxes": 300, "custom_mx": True, "callback": True},
-}
+nouns = """ball
+bat
+bed
+book
+boy
+bun
+can
+cake
+cap
+car
+cat
+cow
+cub
+cup
+dad
+day
+dog
+doll
+dust
+fan
+feet
+girl
+gun
+hall
+hat
+hen
+jar
+kite
+man
+map
+men
+mom
+pan
+pet
+pie
+pig
+pot
+rat
+son
+sun
+toe
+tub
+van
+""".splitlines()
 
-PLANS = {
-    "basic30": {
-        "name": "Basic",
-        "features": FEATURES["personal"],
-        "duration": {"days": 90},
-        "price": {"USD": Decimal("10.00")},
-    },
-    "extra30": {
-        "name": "Extra",
-        "features": FEATURES["pro"],
-        "duration": {"days": 90},
-        "price": {"USD": Decimal("50.00")},
-        "recommended": True,
-    },
-    "super30": {
-        "name": "Super",
-        "features": FEATURES["enterprise"],
-        "duration": {"days": 90},
-        "price": {"USD": Decimal("90.00")},
-    },
-}
+shape_adj = """broad
+chubby
+crooked
+curved
+deep
+flat
+high
+hollow
+low
+narrow
+round
+shallow
+skinny
+square
+steep
+straight
+wide
+""".splitlines()
+
+touch_adj = """boiling
+breeze
+broken
+bumpy
+chilly
+cold
+cool
+creepy
+crooked
+cuddly
+curly
+damaged
+damp
+dirty
+dry
+dusty
+filthy
+flaky
+fluffy
+freezing
+hot
+warm
+wet""".splitlines()
 
 # for p in PLANS:
 #    PLANS[p]["price"]["sats"] = PLANS[p]["price"]["BTC"] * BTC
@@ -77,6 +136,7 @@ schema_options = {
     "disable_edit_json": True,
     "disable_properties": True,
 }
+API_KEY = os.environ["STRIPE_API_KEY"]
 
 
 def delete_email(email):
@@ -95,15 +155,6 @@ def delete_message(email, message_uuid):
     return r2.content
 
 
-def add_email(request):
-    email = request.data.get("email").strip()
-    user_id = request.user.id
-    r = client.post("/_emails/", {"address": email, "user_id": user_id})
-    if r.status_code == 201:
-        return None
-    return r.json()
-
-
 def get_or_create_profile(user_id):
     path = f"v2/profile/{user_id}"
 
@@ -115,160 +166,124 @@ def get_or_create_profile(user_id):
             1 / 0
     profile = profile_res.json()
     TEMPLATE_CONTEXT["balance"] = round(profile["data"].get("balance", 0), 2)
+    stripe_customer_id = profile["data"].get("stripe_customer_id", None)
+    if not stripe_customer_id:
+        c = stripe.Customer.create(api_key=API_KEY)
+        print(c.id)
+        stripe_customer_id = c.id
+        profile["data"]["stripe_customer_id"] = stripe_customer_id
+        profile_res = client.put(f"/_data/{path}", data=profile)
+        profile = profile_res.json()
+
+    stripe_customer = profile["data"].get("stripe_customer", {})
+    if not stripe_customer:
+        stripe_customer = stripe.Customer.retrieve(stripe_customer_id, api_key=API_KEY)
+        profile["data"]["stripe_customer"] = stripe_customer
+        profile_res = client.put(f"/_data/{path}", data=profile)
+        profile = profile_res.json()
+    TEMPLATE_CONTEXT["stripe_customer"] = stripe_customer
+    subscriptions = profile["data"].get("subscriptions", [])
+    if subscriptions is None:
+        subscriptions = list(TEMPLATE_CONTEXT["stripe_customer"].subscriptions)
+        profile["data"]["subscriptions"] = subscriptions
+        profile_res = client.put(f"/_data/{path}", data=profile)
+        profile = profile_res.json()
+
     TEMPLATE_CONTEXT["profile"] = profile
     return profile
 
 
-def update_invoice(user_id, invoice_id):
-    btcpayclient = BTCPayClient(
-        host=os.environ["BTCPAYSERVER_HOST"],
-        pem=os.environ["BTCPAYSERVER_PEM"],
-        tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
-    )
-    invoice = btcpayclient.get_invoice(invoice_id)
-    amount = 0
-    if invoice["status"] in ["complete", "confirmed"]:
-        amount = Decimal(invoice["price"])
-
-    return client.patch(
-        fr"/_data/v1/transactions/{user_id}/{ invoice_id }",
-        data={"data": {"user_id": user_id, "amount": amount, "invoice": invoice}},
-    )
-
-
-def topup_view(request):
+@api_view(["GET", "POST"])
+@renderer_classes([SnekTemplateHTMLRenderer])
+def subscription_view(request):
     user_id = request.user.id
     if not user_id:
         return Response(
             {"content": "Unauthorized"}, status=401, template_name="401.html"
         )
-
     profile = get_or_create_profile(user_id)
-    errors = {}
+    profile["data"]["subscriptions"] = None
+    profile["data"]["stripe_customer"] = None
+    profile_res = client.put(profile["url"], data=profile)
+    profile = get_or_create_profile(user_id)
+    print(request.data)
 
-    schema = {
-        "title": "Top up account",
-        "type": "object",
-        "properties": {"amount": {"type": "number", "title": "USD", "minimum": 0.01}},
-    }
-    if request.method == "OPTIONS":
-        return Response({"schema": schema}, template_name="rest_framework_base.html")
-    TEMPLATE_CONTEXT["schema"] = schema
-    request_data = {}
-    if isinstance(request.data, dict):
-        request_data = request.data
-    initial = None
-    if "amount" in request.query_params:
-        initial = {
-            "json": json.dumps({"amount": float(request.query_params.get("amount"))})
-        }
-    print(initial)
-    form = JSONSchemaForm(
-        initial=initial,
-        data=request.data and {"json": request_data.get("json", request_data)} or None,
-        schema=schema,
-        options=schema_options,
-        ajax=False,
+    buy = int(request.data.get("buy", 0))
+    update = request.data.get("update", False)
+    cancel = request.data.get("cancel", None)
+    print("buy:", buy, "update:", update, "cancel:", cancel)
+    if buy > 0:
+        session = stripe.checkout.Session.create(
+            api_key=API_KEY,
+            payment_method_types=["card"],
+            line_items=[],
+            subscription_data={
+                "items": [{"plan": "plan_FTz0jFTBDcyvGB", "quantity": buy}]
+            },
+            customer=profile["data"]["stripe_customer_id"],
+            success_url=request.build_absolute_uri("/"),
+            cancel_url=request.build_absolute_uri(),
+        )
+        return Response({"session": session}, template_name="session.html")
+    elif update:
+        for s in profile["data"]["subscriptions"]:
+            print("s id", s["id"], request.data["s"])
+            if s["id"] == request.data["s"]:
+                print("update", request.data.get("quantity"), s["id"])
+                sub_resp = stripe.Subscription.modify(
+                    s["id"],
+                    api_key=API_KEY,
+                    billing_cycle_anchor="now",
+                    items=[
+                        {
+                            "id": request.data.get("si", 0),
+                            "quantity": int(request.data.get("quantity", 0)),
+                        }
+                    ],
+                )
+                print(sub_resp)
+                return Response(status=303, headers={"Location": request.path})
+
+    elif cancel:
+        for s in profile["data"]["subscriptions"]:
+            if s["id"] == request.data["s"]:
+                print("cancel", cancel, s["id"])
+                if cancel == "keep":
+                    stripe.Subscription.modify(
+                        s["id"], api_key=API_KEY, cancel_at_period_end=False
+                    )
+                elif cancel == "cancel_at_period_end":
+                    stripe.Subscription.modify(
+                        s["id"], api_key=API_KEY, cancel_at_period_end=True
+                    )
+                elif cancel == "cancel_now":
+                    stripe.Subscription.delete(
+                        s["id"], api_key=API_KEY, invoice_now=True, prorate=True
+                    )
+                profile["data"]["subscriptions"] = "REFRESH"
+                profile_res = client.put(f"/_data/{path}", data=profile)
+                return Response(status=303, headers={"Location": request.path})
+
+    return Response(template_name="subscription.html")
+
+
+@api_view(["GET"])
+@renderer_classes([JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer])
+def balance_view(request):
+    user_id = request.user.id
+    if not user_id:
+        return Response(
+            {"content": "Unauthorized"}, status=401, template_name="401.html"
+        )
+    profile = get_or_create_profile(user_id)
+    balance_transactions = list(
+        stripe.Customer.list_balance_transactions(
+            profile["data"]["stripe_customer_id"], api_key=API_KEY
+        )
     )
-    # form = JSONSchemaForm(
-    #    initial={"json": json.dumps({"amount": request.query_params.get("amount")})},
-    #    data=request.data or None,
-    #    schema=schema,
-    #    options=schema_options,
-    #    ajax=False,
-    # )
-
-    TEMPLATE_CONTEXT["form"] = form
-
-    data = {}
-    if request.method == "POST":
-        if form.is_valid():
-            btcpayclient = BTCPayClient(
-                host=os.environ["BTCPAYSERVER_HOST"],
-                pem=os.environ["BTCPAYSERVER_PEM"],
-                tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
-            )
-            amount = form.cleaned_data["json"]["amount"]
-            invoice = btcpayclient.create_invoice(
-                {
-                    "price": amount,
-                    "currency": "USD",
-                    "redirectURL": "https://" + os.environ["HOST"],
-                    "itemDescription": "top up",
-                    "notificationURL": rf"https://{os.environ['HOST']}/update_invoice/",
-                }
-            )
-            client.post(
-                r"/_data",
-                data={
-                    "path": rf'v1/transactions/{user_id}/{ invoice["id"] }',
-                    "data": {"invoice": invoice, "user_id": user_id},
-                },
-            )
-            data = {
-                "invoice_url": invoice["url"],
-                "invoice_id": invoice["id"],
-                "expiration_time": invoice["expirationTime"],
-                "addresses": invoice["addresses"],
-            }
-            if request.accepted_renderer.format == "html":
-                return Response(status=303, headers={"Location": invoice["url"]})
-            # r = client.patch(profile["url"], data={"data": profile["data"]})
-            # if r.status_code == 200:
-
-            #    data = invoice
-            # else:
-            #    data = j.json()
-    new_invoices_res = client.get(
-        f"/_data?path__startswith=v1/transactions/{ user_id }/&data__invoice__status=new"
+    return Response(
+        {"balance_transactions": balance_transactions}, template_name="balance.html"
     )
-    new_invoices = [
-        update_invoice(i["data"]["invoice"]["id"])
-        for i in new_invoices_res.json()["results"]
-    ]
-    if request.accepted_renderer.format == "json":
-        if form.errors:
-            data = form.errors.get_json_data()
-    if request.accepted_renderer.format == "html":
-        if any(new_invoices):
-            new_invoices_res = client.get(
-                f"/_data?path__startswith=v1/transactions/{ user_id }/&data__invoice__status=new"
-            )
-            new_invoices = new_invoices_res.json()["results"]
-            TEMPLATE_CONTEXT["new_invoices"] = new_invoices
-    return Response(data, template_name="topup.html")
-
-
-def update_invoice_view(request):
-    invoice_id = request.data.get("id", None) or request.query_params.get(
-        "invoice_id", "1111"
-    )
-    return Response(update_invoice(invoice_id))
-
-
-def update_invoice(invoice_id):
-    btcpayclient = BTCPayClient(
-        host=os.environ["BTCPAYSERVER_HOST"],
-        pem=os.environ["BTCPAYSERVER_PEM"],
-        tokens={"merchant": os.environ["BTCPAYSERVER_TOKEN"]},
-    )
-    data = None
-    try:
-        invoice = btcpayclient.get_invoice(invoice_id)
-        r = client.get(f"/_data?data__invoice__id={ invoice_id }")
-        if r.status_code == 200 and r.json()["count"] == 1:
-            d = r.json()
-            transaction = r.json()["results"][0]
-            transaction["data"]["invoice"] = invoice
-            # transaction["data"]["amount_sats"] = int(Decimal(invoice["btcPaid"]) * BTC)
-            transaction["data"]["amount_usd"] = float(invoice["price"])
-            r = client.patch(transaction["url"], data=transaction)
-            data = invoice
-
-    except Exception as e:
-        print("Oh no")
-        print(e)
-    return data
 
 
 STATIC_URL = "/static/"
@@ -281,8 +296,6 @@ def faq(request):
     faqs = {
         "How do I use my own domain?": f"First purchase the correct plan, then you will need to add an MX record pointing to mx.mailpipe.io and a TXT record with a value 'func=mailpipe&user={ request.user.id or 'USER_ID'}'",
         "Can I use Mailpipe directly from Tor?": f"Absolutely, all Functup sites automatically are accessable from Tor as well. Mailpipe is availiable at https://mailpipe.{ settings['TOR_DOMAIN'] }.",
-        "How can I pay with Lightning?": "Connect to our LND node: 0214b87e06039a44b5a23580f0e2f801b913fe9e3dc29169419f5eed15e449e9d3@35.243.77.241:9735",
-        "Can I pay over Tor?": "Sure, connect to our Tor LND node: fafumon6bsuvs7rchggboh5il4byab5ccin7q353i6rj7ww6fengcsqd.onion:9735",
     }
 
     return Response({"faqs": faqs}, template_name="faq.html")
@@ -290,12 +303,13 @@ def faq(request):
 
 def welcome(request):
     """Welcome, this is the API documentation for Mailpipe"""
+
     if not request.is_tor and (request.get_host() != os.environ["HOST"]):
         return Response(
             status=301, headers={"location": "https://" + os.environ["HOST"]}
         )
 
-    data = {"welcome": "This is the JSON view of the welcome page", "plans": PLANS}
+    data = {"welcome": "This is the JSON view of the welcome page"}
     return Response(data, template_name="index.html")
 
 
@@ -355,15 +369,6 @@ def email_list(request):
     # should only be one but you never know
     profile = get_or_create_profile(user_id)
     errors = {}
-    # next_page = f"/_data?data__owner={request.user.username}&path__startswith=v1/emails&page_size=10000"
-    # next_page = False
-    # while next_page:
-    #    old_data_resp = client.get(next_page)
-    #    old_address_list = old_data_resp.json()["results"]
-    #    for oa in old_address_list:
-    #        r = client.patch(f"/_emails/{oa['data']['email']}/", {"user_id": user_id})
-    #        client.delete(oa["url"])
-    #    next_page = old_data_resp.json()["next"]
 
     data = user_email_list(request, user_id)
     schema = {
@@ -403,25 +408,33 @@ def email_list(request):
         else:
             request_data = {"json": request.data}
     print(request_data)
+    random_inbox = (
+        random.choice(touch_adj)
+        + "-"
+        + random.choice(shape_adj)
+        + "-"
+        + random.choice(nouns)
+        + str(random.randrange(100, 1000))
+    )
     form = JSONSchemaForm(
         initial=request.data
-        or {"json": json.dumps({"address": "@" + os.environ["HOST"]})},
+        or {"json": json.dumps({"address": random_inbox + "@" + os.environ["HOST"]})},
         data=request_data,
         schema=schema,
         options=schema_options,
         ajax=False,
     )
     TEMPLATE_CONTEXT["form"] = form
+    inbox_quota = 1
+    if len(profile["data"]["subscriptions"]) > 0:
+        inbox_quota = inbox_quota + profile["data"]["subscriptions"][0]["quantity"]
+
+    TEMPLATE_CONTEXT["inbox_quota"] = inbox_quota
+
     if request.method == "POST":
         if form.is_valid():
             print("form is valid")
-            if (
-                data["count"]
-                < (
-                    profile["data"].get("current_plan", None)
-                    or {"features": {"max_inboxes": 1}}
-                )["features"]["max_inboxes"]
-            ):
+            if data["count"] < inbox_quota:
                 r = client.post(
                     "/_emails/",
                     data={
@@ -432,7 +445,8 @@ def email_list(request):
                 )
                 if r.status_code == 201:
                     email_data = email_adapter(request, r.json())
-                    return Response(status=303, headers={"Location": email_data["url"]})
+                    # return Response(status=303, headers={"Location": email_data["url"]})
+                    return Response(data, template_name="email_list.html")
                 else:
                     for k, v in r.json().items():
                         if k in form.fields:
@@ -638,9 +652,10 @@ def email_detail_view(request, email_address):
     if "delete" in request.data or request.method == "DELETE":
         error = delete_email(email_address)
         if not error:
-            return Response(
-                {"deleted": email_address}, template_name="email_address_deleted.html"
-            )
+            return Response(status=303, headers={"location": "/"})
+            # return Response(
+            #    {"deleted": email_address}, template_name="email_address_deleted.html"
+            # )
         else:
             form.add_error(None, error)
     elif request.method == "POST":
@@ -958,26 +973,6 @@ def plan_view(request, selected_plan):
     return Response(data=data, template_name="plans.html")
 
 
-urls = [
-    ("^/welcome/$", welcome),
-    (r"^/$", email_list),
-    (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/$", email_detail_view),
-    (r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/$", message_list_view),
-    (
-        r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
-        message_detail_view,
-    ),
-    (
-        r"^/(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
-        attachment_detail,
-    ),
-    (r"^/topup/$", topup_view),
-    (r"^/transactions/$", transaction_view),
-    (r"^/update_invoice/$", update_invoice_view),
-    (r"^/plans/(?P<selected_plan>[a-z0-9]*)/$", plan_view),
-    (r"^/static/(?P<path>.*)$", static),
-]
-
 urlpatterns = [
     re_path(
         "^faq/$",
@@ -1030,41 +1025,19 @@ urlpatterns = [
     re_path(
         r"^(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/(?P<attachment_index>[0-9]+)/(?P<filename>.+)$",
         api_view(["GET"])(
-            renderer_classes(
-                [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
-            )(attachment_detail)
+            renderer_classes([SnekTemplateHTMLRenderer, JSONRenderer])(
+                attachment_detail
+            )
         ),
     ),
-    re_path(
-        r"^topup/$",
-        api_view(["GET", "POST", "DELETE"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(topup_view)
+    path(
+        "",
+        include(
+            [
+                path(r"subscription/", subscription_view, name="subscription"),
+                path(r"balance/", balance_view, name="balance"),
+            ]
         ),
-    ),
-    re_path(
-        r"^transactions/$",
-        api_view(["GET", "POST", "DELETE"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(transaction_view)
-        ),
-    ),
-    re_path(
-        r"^update_invoice/?$",
-        api_view(["GET", "POST", "DELETE"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(update_invoice_view)
-        ),
-    ),
-    re_path(
-        r"^plans/(?P<selected_plan>[a-z0-9]*)/$",
-        api_view(["GET", "POST"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(plan_view)
-        ),
-    ),
-    re_path(
-        r"^plans/$",
-        api_view(["GET", "POST", "DELETE"])(
-            renderer_classes([SnekTemplateHTMLRenderer])(plan_view)
-        ),
-        {"selected_plan": None},
     ),
     re_path(
         r"^static/(?P<path>.*)$",
@@ -1072,66 +1045,39 @@ urlpatterns = [
     ),
 ]
 
-
-def handle(request):
-    # if request.data and not isinstance(request.data, dict):
-    #    return Response("Bad request", status=400, template_name="base.html")
-    if not request.is_tor and (request.get_host() != os.environ["HOST"]):
-        return Response(
-            status=301, headers={"location": "https://" + os.environ["HOST"]}
-        )
-
-    for path_re, view in urls:
-        m = re2.match(path_re, request.path)
-        if m:
-            response = view(request, **m.groupdict())
-            # add format=api if this is an internal redirect an dthe original request had it
-            if response.status_code in [301, 302, 303, 307, 308]:
-                location = parse.urlsplit(response.get("location", ""))
-                if not location.netloc:
-                    if "format" in request.query_params:
-                        location_qs = parse.parse_qs(location.query)
-                        if "format" not in location_qs:
-                            location_qs["format"] = request.query_params["format"]
-                            new_location_query = parse.urlencode(
-                                location_qs, doseq=True
-                            )
-
-                            response["location"] = parse.urlunsplit(
-                                (
-                                    location.scheme,
-                                    location.netloc,
-                                    location.path,
-                                    new_location_query,
-                                    location.fragment,
-                                )
-                            )
-
-            return response
-
-    for path_re, view in urls:
-        m = re2.match(path_re, request.path + "/")
-        if m:
-            location = request.path + "/"
-            if request.query_params:
-                location = location + "?" + parse.urlencode(request.query_params)
-
-            return Response(status=308, headers={"Location": location})
-    return Response({"content": "not found"}, status=404, template_name="base.html")
-
-
-get = handle
-post = handle
-delete = handle
-
-options = handle
-
-
 # global store for things we want in the html, but are not the core data
 
 TEMPLATE_CONTEXT = {}
 
-TEMPLATE_LIBRARIES = {"lazysignup_tags": lazysignup_tags.register}
+
+from functup.template import Library
+
+mailpiperegister = Library()
+
+
+@mailpiperegister.filter
+def div(value, arg):
+    """Divide the arg by the value."""
+    if not arg:
+        return ""
+    return float(value or 0) / float(arg)
+
+
+@mailpiperegister.filter
+def index(l, i):
+    return l[int(i)]
+
+
+@mailpiperegister.filter("timestamp_to_time")
+def timestamp_to_time(timestamp):
+    if timestamp:
+        return arrow.get(int(timestamp)).datetime
+
+
+TEMPLATE_LIBRARIES = {
+    "lazysignup_tags": lazysignup_tags.register,
+    "mailpipe": mailpiperegister,
+}
 
 
 def add_template_context(request):
@@ -1147,16 +1093,3 @@ def add_settings_context(request):
 
 
 CONTEXT_PROCESSORS = [add_template_context, add_user_context, add_settings_context]
-
-
-def test_home():
-    resp = handle({"path": "/", "user": {"username": "", "id": None}})
-    resp = handle({"path": "/", "user": {"username": "bob2", "id": 2}})
-
-
-def test_emails():
-    resp = handle({"path": "/e/foo@example.com"})
-
-
-def test_404():
-    resp = handle({"path": "/non-existant"})
