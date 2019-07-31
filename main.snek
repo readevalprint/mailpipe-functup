@@ -182,12 +182,6 @@ def get_or_create_profile(user_id):
         profile_res = client.put(f"/_data/{path}", data=profile)
         profile = profile_res.json()
     TEMPLATE_CONTEXT["stripe_customer"] = stripe_customer
-    subscriptions = profile["data"].get("subscriptions", [])
-    if subscriptions is None:
-        subscriptions = list(TEMPLATE_CONTEXT["stripe_customer"].subscriptions)
-        profile["data"]["subscriptions"] = subscriptions
-        profile_res = client.put(f"/_data/{path}", data=profile)
-        profile = profile_res.json()
 
     TEMPLATE_CONTEXT["profile"] = profile
     return profile
@@ -218,15 +212,20 @@ def subscription_view(request):
             payment_method_types=["card"],
             line_items=[],
             subscription_data={
-                "items": [{"plan": "plan_FTz0jFTBDcyvGB", "quantity": buy}]
+                "items": [{"plan": os.environ["PLAN"], "quantity": buy}]
             },
             customer=profile["data"]["stripe_customer_id"],
             success_url=request.build_absolute_uri("/"),
             cancel_url=request.build_absolute_uri(),
         )
-        return Response({"session": session}, template_name="session.html")
+        profile["data"]["stripe_customer"] = None
+        profile_res = client.put(profile["url"], data=profile)
+        return Response(
+            {"session": session, "stripe_public_key": os.environ["STRIPE_PUBLIC_KEY"]},
+            template_name="session.html",
+        )
     elif update:
-        for s in profile["data"]["subscriptions"]:
+        for s in profile["data"]["stripe_customer"]["subscriptions"]["data"]:
             print("s id", s["id"], request.data["s"])
             if s["id"] == request.data["s"]:
                 print("update", request.data.get("quantity"), s["id"])
@@ -245,7 +244,7 @@ def subscription_view(request):
                 return Response(status=303, headers={"Location": request.path})
 
     elif cancel:
-        for s in profile["data"]["subscriptions"]:
+        for s in profile["data"]["stripe_customer"]["subscriptions"]["data"]:
             if s["id"] == request.data["s"]:
                 print("cancel", cancel, s["id"])
                 if cancel == "keep":
@@ -260,7 +259,7 @@ def subscription_view(request):
                     stripe.Subscription.delete(
                         s["id"], api_key=API_KEY, invoice_now=True, prorate=True
                     )
-                profile["data"]["subscriptions"] = "REFRESH"
+                profile["data"]["stripe_customer"] = None
                 profile_res = client.put(f"/_data/{path}", data=profile)
                 return Response(status=303, headers={"Location": request.path})
 
@@ -294,7 +293,7 @@ def faq(request):
     # Some questions you may also have
     """
     faqs = {
-        "How do I use my own domain?": f"First purchase the correct plan, then you will need to add an MX record pointing to mx.mailpipe.io and a TXT record with a value 'func=mailpipe&user={ request.user.id or 'USER_ID'}'",
+        "How do I use my own domain?": f"You will need to add an MX record pointing to mx.mailpipe.io and a TXT record with a value 'func=mailpipe&user={ request.user.id or 'USER_ID'}'",
         "Can I use Mailpipe directly from Tor?": f"Absolutely, all Functup sites automatically are accessable from Tor as well. Mailpipe is availiable at https://mailpipe.{ settings['TOR_DOMAIN'] }.",
     }
 
@@ -426,8 +425,11 @@ def email_list(request):
     )
     TEMPLATE_CONTEXT["form"] = form
     inbox_quota = 1
-    if len(profile["data"]["subscriptions"]) > 0:
-        inbox_quota = inbox_quota + profile["data"]["subscriptions"][0]["quantity"]
+    if profile["data"]["stripe_customer"]["subscriptions"]["data"]:
+        inbox_quota = (
+            inbox_quota
+            + profile["data"]["stripe_customer"]["subscriptions"]["data"][0]["quantity"]
+        )
 
     TEMPLATE_CONTEXT["inbox_quota"] = inbox_quota
 
@@ -445,8 +447,7 @@ def email_list(request):
                 )
                 if r.status_code == 201:
                     email_data = email_adapter(request, r.json())
-                    # return Response(status=303, headers={"Location": email_data["url"]})
-                    return Response(data, template_name="email_list.html")
+                    return Response(status=303, headers={"Location": request.path})
                 else:
                     for k, v in r.json().items():
                         if k in form.fields:
