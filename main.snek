@@ -1017,7 +1017,7 @@ urlpatterns = [
     ),
     re_path(
         r"^(?P<email_address>[^/]+@[^/]+.[^/])/messages/(?P<message_uuid>[^/]+)/$",
-        api_view(["GET", "DELETE"])(
+        api_view(["GET", "DELETE", "POST"])(
             renderer_classes(
                 [JSONRenderer, SnekTemplateHTMLRenderer, BrowsableAPIRenderer]
             )(message_detail_view)

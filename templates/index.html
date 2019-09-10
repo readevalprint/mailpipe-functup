@@ -10,8 +10,26 @@
 {% block content %}
 
   <div class="pricing-header px-3 py-3 pt-md-5 pb-md-4 mx-auto text-center">
-    <p class="lead">Start programmatically receiving email for your users in just a few seconds</p>
-  </div>
-  
+    <p class="lead">Start programmatically creating email addresses and retreiving email for your project in just a few seconds
+    </p>
 
+    <a class="btn btn-primary" href="/_login">Try now with 1 free inbox</a>
+  </div>
+  <div class="pricing-header px-3 py-3 pt-md-5 pb-md-4 mx-auto ">
+
+    <h3>
+      Get all email addresses:
+    </h3>
+      <pre>$ curl -H "Authorization: Token $TOKEN" https://mailpipe.io</pre>
+
+    <h3>Get all messages in an inbox:</h3>
+    <pre>$ curl -H "Authorization: Token $TOKEN" https://mailpipe.io/$ADDRESS/</pre>
+
+    <h3>Delete a message:</h3>
+    <pre>$ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$ADDRESS/messages/$MESSAGE_UUID/</pre>
+
+    <h3> Delete an addresses: </h3>
+    <pre>$ curl -L -H "Authorization: Token $TOKEN" -X DELETE https://mailpipe.io/$ADDRESS/</pre>
+
+  </div>
 {% endblock %}
